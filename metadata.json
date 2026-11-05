@@ -1,0 +1,6 @@
+{
+  "name": "観戦ログ (Baseball Watch Log)",
+  "description": "中日ドラゴンズを中心としたプロ野球観戦記録管理アプリ。観戦勝率、詳細スコアボード、座席、費用、チケット予定を一元管理。",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
