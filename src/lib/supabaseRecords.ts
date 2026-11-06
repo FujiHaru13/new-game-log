@@ -1,4 +1,4 @@
-import { MatchRecord, CategoryId, MatchStatus, MatchType, WatchStatus, TicketStatus } from '../types/baseball';
+import { MatchRecord, CategoryId, MatchStatus, MatchType, WatchStatus, TicketStatus, InningScore, PitcherInfo, MatchLink, SplitPayment } from '../types/baseball';
 import { SupabaseClient } from '@supabase/supabase-js';
 
 type JsonRecord = Record<string, unknown>;
@@ -72,6 +72,62 @@ interface TicketRow extends JsonRecord {
   issue_date: string | null;
   ticket_type: string | null;
   notes: string | null;
+  payment_deadline: string | null;
+  quantity: number | null;
+  vendor: string | null;
+  purchase_amount: number | null;
+  my_expense: number | null;
+  refund_amount: number | null;
+  refund_status: 'none' | 'pending' | 'completed';
+}
+
+interface InningRow extends JsonRecord {
+  match_id: string;
+  inning_number: number;
+  side: 'home' | 'away';
+  runs: number | null;
+  is_not_played: boolean;
+}
+interface TeamTotalRow extends JsonRecord {
+  match_id: string;
+  side: 'home' | 'away';
+  hits: number | null;
+  errors: number | null;
+}
+interface PitcherRow extends JsonRecord {
+  match_id: string;
+  side: 'home' | 'away' | null;
+  role: 'starter' | 'winning' | 'losing' | 'save' | 'other';
+  player_name: string;
+}
+interface EventRow extends JsonRecord {
+  match_id: string;
+  event_type: 'home_run' | 'other';
+  player_name: string | null;
+  description: string;
+  event_order: number | null;
+}
+interface LinkRow extends JsonRecord {
+  match_id: string;
+  title: string;
+  url: string;
+}
+interface PaymentSplitRow extends JsonRecord {
+  id: string;
+  watch_record_id: string;
+  title: string;
+  amount: number;
+  paid_date: string | null;
+  memo: string | null;
+}
+
+export interface Phase2RecordTables {
+  innings: InningRow[];
+  totals: TeamTotalRow[];
+  pitchers: PitcherRow[];
+  events: EventRow[];
+  links: LinkRow[];
+  splits: PaymentSplitRow[];
 }
 
 const asNullable = (value: string | undefined) => value || null;
@@ -85,7 +141,7 @@ export interface RecordTables {
   tickets: TicketRow[];
 }
 
-export const loadRecordTables = async (client: SupabaseClient): Promise<RecordTables> => {
+export const loadRecordTables = async (client: SupabaseClient, includePhase2 = false): Promise<RecordTables & Partial<Phase2RecordTables>> => {
   const [matches, watches, categories, seats, tickets] = await Promise.all([
     client.from('matches').select('*').order('match_date', { ascending: false }),
     client.from('watch_records').select('*'),
@@ -96,12 +152,32 @@ export const loadRecordTables = async (client: SupabaseClient): Promise<RecordTa
   for (const result of [matches, watches, categories, seats, tickets]) {
     if (result.error) throw new Error(`試合データの読み込みに失敗しました: ${result.error.message}`);
   }
-  return {
+  const base = {
     matches: (matches.data || []) as MatchRow[],
     watches: (watches.data || []) as WatchRow[],
     categories: (categories.data || []) as CategoryRow[],
     seats: (seats.data || []) as SeatRow[],
     tickets: (tickets.data || []) as TicketRow[],
+  };
+  if (!includePhase2) return base;
+  const detailResults = await Promise.all([
+    client.from('match_inning_scores').select('*'),
+    client.from('match_team_totals').select('*'),
+    client.from('match_pitchers').select('*'),
+    client.from('match_events').select('*').order('event_order'),
+    client.from('match_links').select('*'),
+    client.from('payment_splits').select('*'),
+  ]);
+  const detailError = detailResults.find(result => result.error)?.error;
+  if (detailError) throw new Error(`Phase 2詳細データの読み込みに失敗しました: ${detailError.message}`);
+  return {
+    ...base,
+    innings: detailResults[0].data as InningRow[],
+    totals: detailResults[1].data as TeamTotalRow[],
+    pitchers: detailResults[2].data as PitcherRow[],
+    events: detailResults[3].data as EventRow[],
+    links: detailResults[4].data as LinkRow[],
+    splits: detailResults[5].data as PaymentSplitRow[],
   };
 };
 
@@ -111,9 +187,32 @@ export const toMatchRecord = (
   categories: CategoryRow[],
   seat: SeatRow | undefined,
   ticket: TicketRow | undefined,
+  details?: Phase2RecordTables,
 ): MatchRecord => {
   const recordCategories = categories.filter(row => row.watch_record_id === watch?.id);
   const primary = recordCategories.find(row => row.is_primary)?.category_id || recordCategories[0]?.category_id || 'other';
+  const matchInnings = details?.innings.filter(row => row.match_id === match.id) || [];
+  const matchTotals = details?.totals.filter(row => row.match_id === match.id) || [];
+  const matchPitchers = details?.pitchers.filter(row => row.match_id === match.id) || [];
+  const matchEvents = details?.events.filter(row => row.match_id === match.id) || [];
+  const matchLinks = details?.links.filter(row => row.match_id === match.id) || [];
+  const matchSplits = details?.splits.filter(row => row.watch_record_id === watch?.id) || [];
+  const innings: InningScore | undefined = matchInnings.length ? {
+    home: matchInnings.filter(row => row.side === 'home').sort((a, b) => a.inning_number - b.inning_number)
+      .map(row => row.is_not_played ? 'X' : row.runs),
+    away: matchInnings.filter(row => row.side === 'away').sort((a, b) => a.inning_number - b.inning_number).map(row => row.runs),
+    homeHits: matchTotals.find(row => row.side === 'home')?.hits,
+    awayHits: matchTotals.find(row => row.side === 'away')?.hits,
+    homeErrors: matchTotals.find(row => row.side === 'home')?.errors,
+    awayErrors: matchTotals.find(row => row.side === 'away')?.errors,
+  } : undefined;
+  const pitchers: PitcherInfo | undefined = matchPitchers.length ? {
+    homeStarter: matchPitchers.find(row => row.role === 'starter' && row.side === 'home')?.player_name,
+    awayStarter: matchPitchers.find(row => row.role === 'starter' && row.side === 'away')?.player_name,
+    winningPitcher: matchPitchers.find(row => row.role === 'winning')?.player_name,
+    losingPitcher: matchPitchers.find(row => row.role === 'losing')?.player_name,
+    savePitcher: matchPitchers.find(row => row.role === 'save')?.player_name,
+  } : undefined;
   return {
     id: match.id,
     date: asDate(match.match_date),
@@ -129,7 +228,11 @@ export const toMatchRecord = (
     awayScore: match.away_score,
     isScoreConfirmed: match.score_confirmed,
     matchDurationMinutes: match.duration_minutes,
+    innings,
+    pitchers,
+    homeRuns: matchEvents.filter(row => row.event_type === 'home_run').map(row => row.player_name || row.description),
     events: match.events || undefined,
+    links: matchLinks.length ? matchLinks.map(row => ({ title: row.title, url: row.url })) : undefined,
     notes: match.notes || undefined,
     watchStatus: watch?.watch_status || 'scheduled',
     cheerTeamId: watch?.cheer_team_id || 'dragons',
@@ -151,7 +254,7 @@ export const toMatchRecord = (
       paymentDestination: watch?.payment_destination || undefined,
       paymentMethod: watch?.payment_method || undefined,
       memo: watch?.cost_memo || undefined,
-      splits: [],
+      splits: matchSplits.map(row => ({ id: row.id, title: row.title, amount: row.amount, paidDate: row.paid_date || undefined, memo: row.memo || undefined })),
       refundAmount: watch?.refund_amount,
       refundStatus: watch?.refund_status || 'none',
     },
@@ -160,6 +263,9 @@ export const toMatchRecord = (
       releaseDate: ticket?.release_date || undefined,
       purchaseDate: ticket?.purchase_date || undefined,
       issueDate: ticket?.issue_date || undefined,
+      paymentDeadline: ticket?.payment_deadline || undefined,
+      quantity: ticket?.quantity || undefined,
+      vendor: ticket?.vendor || undefined,
       ticketType: ticket?.ticket_type || undefined,
       notes: ticket?.notes || undefined,
     },
@@ -212,9 +318,59 @@ const ticketPayload = (record: MatchRecord, ownerId: string) => ({
   release_date: record.ticketInfo.releaseDate || null,
   purchase_date: record.ticketInfo.purchaseDate || null,
   issue_date: record.ticketInfo.issueDate || null,
+  payment_deadline: record.ticketInfo.paymentDeadline || null,
+  quantity: record.ticketInfo.quantity ?? null,
+  vendor: record.ticketInfo.vendor || null,
   ticket_type: record.ticketInfo.ticketType || null,
   notes: record.ticketInfo.notes || null,
 });
+
+export interface AtomicSaveOptions {
+  replaceDetails?: boolean;
+}
+
+const atomicPayload = (record: MatchRecord, ownerId: string, options: AtomicSaveOptions) => {
+  const replaceDetails = options.replaceDetails ?? true;
+  return {
+    match: matchPayload(record, ownerId),
+    watch: watchPayload(record, ownerId),
+    categories: record.categories.map(id => ({ id, is_primary: id === record.primaryCategory })),
+    seat: {
+      seat_type_id: record.seatInfo.seatTypeId?.trim() || null,
+      custom_seat_type_name: record.seatInfo.seatTypeName?.trim() || null,
+      area: record.seatInfo.area || null,
+      seat_row: record.seatInfo.row || null,
+      seat_number: record.seatInfo.seatNumber || null,
+    },
+    ticket: {
+      status: record.ticketInfo.status,
+      release_date: record.ticketInfo.releaseDate || null,
+      purchase_date: record.ticketInfo.purchaseDate || null,
+      issue_date: record.ticketInfo.issueDate || null,
+      payment_deadline: record.ticketInfo.paymentDeadline || null,
+      quantity: record.ticketInfo.quantity ?? null,
+      ticket_type: record.ticketInfo.ticketType || null,
+      vendor: record.ticketInfo.vendor || null,
+      notes: record.ticketInfo.notes || null,
+    },
+    innings: record.innings || null,
+    pitchers: record.pitchers || null,
+    home_runs: record.homeRuns || [],
+    events: record.events || null,
+    links: record.links || [],
+    splits: record.costInfo.splits || [],
+    replace: {
+      categories: replaceDetails,
+      seat: replaceDetails,
+      ticket: replaceDetails,
+      innings: replaceDetails,
+      pitchers: replaceDetails,
+      events: replaceDetails,
+      links: replaceDetails,
+      splits: replaceDetails,
+    },
+  };
+};
 
 const validateSeatType = async (client: SupabaseClient, record: MatchRecord) => {
   const seatTypeId = record.seatInfo.seatTypeId?.trim();
@@ -292,6 +448,42 @@ export const saveMatchRecord = async (
     }
     throw error;
   }
+};
+
+const viteEnv = (import.meta as ImportMeta & { env?: Record<string, string> }).env;
+export const isAtomicSaveEnabled = viteEnv?.VITE_SUPABASE_ATOMIC_SAVE === 'true';
+
+export const saveMatchRecordAtomic = async (
+  client: SupabaseClient,
+  ownerId: string,
+  record: MatchRecord,
+  options: AtomicSaveOptions = {},
+) => {
+  await validateSeatType(client, record);
+  const result = await client.rpc('save_match_record', {
+    p_payload: atomicPayload(record, ownerId, options),
+  });
+  if (result.error) {
+    throw new Error(`原子的試合保存に失敗しました: ${result.error.message}`);
+  }
+  const response = result.data as { ok?: boolean; match_id?: string; watch_record_id?: string } | null;
+  if (!response?.ok || response.match_id !== record.id || !response.watch_record_id) {
+    throw new Error('原子的試合保存の応答を検証できませんでした。データ状態を確認してください。');
+  }
+  return response;
+};
+
+export const saveMatchRecordWithPhase2 = async (
+  client: SupabaseClient,
+  ownerId: string,
+  record: MatchRecord,
+  isNew: boolean,
+) => {
+  if (isAtomicSaveEnabled) {
+    await saveMatchRecordAtomic(client, ownerId, record);
+    return;
+  }
+  await saveMatchRecord(client, ownerId, record, isNew);
 };
 
 export const deleteMatchRecord = async (client: SupabaseClient, ownerId: string, id: string) => {

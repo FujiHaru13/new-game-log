@@ -28,7 +28,7 @@ Phase 2では、現在の`MatchRecord`の詳細項目を正規化テーブルへ
 
 ## 原子的保存RPC案
 
-関数名案: `public.save_match_record_v2(payload jsonb)`.
+実装関数: `public.save_match_record(p_payload jsonb)`. Migration [`0007_phase2_atomic_save.sql`](../supabase/migrations/0007_phase2_atomic_save.sql) に定義します。
 
 1. `auth.uid()`がNULLでないことを確認する。
 2. `current_user_is_authorized()`を確認する。
@@ -39,7 +39,11 @@ Phase 2では、現在の`MatchRecord`の詳細項目を正規化テーブルへ
 7. すべての参照ID、`seat_type_id`、所有者、match_id整合性を検証する。
 8. 例外時は関数全体をロールバックし、成功時だけJSON結果を返す。
 
-関数は原則`SECURITY INVOKER`とし、`authenticated`のEXECUTEだけを付与します。`SECURITY DEFINER`が必要になった場合は、固定`search_path`、明示的な引数検証、PUBLIC/anon EXECUTE revoke、関数単位の受入テストを必須にします。`payload jsonb`を直接SQLへ連結せず、`jsonb_to_record`等で型検証します。
+関数は`SECURITY INVOKER`、`search_path = public, pg_catalog`とし、`authenticated`だけにEXECUTEを付与します。`PUBLIC`と`anon`はEXECUTE不可です。`payload jsonb`はJSON演算子で型変換し、所有者はpayloadから受け取らず`auth.uid()`を使用します。`replace`オブジェクトがtrueの子集合だけを置換するため、未指定項目は保持され、明示的な空配列/nullは削除として扱えます。
+
+アプリ側は`VITE_SUPABASE_ATOMIC_SAVE=true`の場合だけRPCを呼びます。既定値はfalseで、Migration未適用の環境では従来の保存処理を使用します。RPC応答は`ok`, `match_id`, `watch_record_id`を検証し、不一致を成功扱いしません。
+
+環境変数は`.env.example`に記載しています。Migration未適用の環境でこのフラグをtrueにしてはいけません。
 
 ## Phase 2実装順序
 
@@ -50,6 +54,14 @@ Phase 2では、現在の`MatchRecord`の詳細項目を正規化テーブルへ
 5. RPCを使う読み書き変換層を実装する。
 6. 既存Phase 1データを読み込む後方互換テストを実施する。
 7. 隔離テストユーザー・隔離試合で原子性、RLS、再試行を検証する。
+
+## 0007適用前後の確認
+
+- 0001〜0006は再実行せず、既存データを変更しない。
+- 0007適用後に`verify_phase2a.sql`で関数、RLS、EXECUTE権限、`payment_splits`、`is_not_played`を確認する。
+- 検証後にのみ`VITE_SUPABASE_ATOMIC_SAVE=true`を設定して段階切替する。
+- RPC失敗時はアプリが成功扱いせず、既存の再読込・エラー表示で停止する。
+- 実PostgreSQL/Supabaseでのトランザクション・RLS受入は、隔離ユーザーと隔離試合で別途実施する。
 
 ## 部分保存と再試行
 

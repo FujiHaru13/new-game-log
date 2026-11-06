@@ -9,7 +9,7 @@ import { STADIUMS } from '../data/stadiums';
 import { INITIAL_SEED_RECORDS } from '../data/seedData';
 import { getMatchResult } from '../utils/baseballUtils';
 import { getSupabaseConnection, saveSupabaseConnection, SupabaseConnection } from '../lib/supabase';
-import { deleteMatchRecord, loadRecordTables, saveMatchRecord, toMatchRecord } from '../lib/supabaseRecords';
+import { deleteMatchRecord, isAtomicSaveEnabled, loadRecordTables, saveMatchRecordWithPhase2, toMatchRecord } from '../lib/supabaseRecords';
 import { Session, User } from '@supabase/supabase-js';
 
 const STORAGE_KEY = 'baseball_watch_log_data_v3_excel';
@@ -193,7 +193,7 @@ export const BaseballProvider: React.FC<{ children: React.ReactNode }> = ({ chil
           order: seat.display_order,
         })),
     })));
-    const tables = await loadRecordTables(connection.client);
+    const tables = await loadRecordTables(connection.client, isAtomicSaveEnabled);
     const watches = new Map(tables.watches.map(row => [row.match_id, row]));
     const seats = new Map(tables.seats.map(row => [row.watch_record_id, row]));
     const tickets = new Map(tables.tickets.map(row => [row.match_id, row]));
@@ -205,6 +205,14 @@ export const BaseballProvider: React.FC<{ children: React.ReactNode }> = ({ chil
         tables.categories,
         watch ? seats.get(watch.id) : undefined,
         tickets.get(match.id),
+        isAtomicSaveEnabled ? {
+          innings: tables.innings || [],
+          totals: tables.totals || [],
+          pitchers: tables.pitchers || [],
+          events: tables.events || [],
+          links: tables.links || [],
+          splits: tables.splits || [],
+        } : undefined,
       );
     }));
   };
@@ -350,7 +358,7 @@ export const BaseballProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     };
     if (connection && user) {
       try {
-        await saveMatchRecord(connection.client, user.id, newRecord, true);
+        await saveMatchRecordWithPhase2(connection.client, user.id, newRecord, true);
       } catch (error) {
         await loadRemoteData().catch(refreshError => {
           console.error('Failed to refresh records after save failure', refreshError);
@@ -368,7 +376,7 @@ export const BaseballProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     const now = new Date().toISOString();
     if (connection && user) {
       try {
-        await saveMatchRecord(connection.client, user.id, { ...updated, updatedAt: now }, false);
+        await saveMatchRecordWithPhase2(connection.client, user.id, { ...updated, updatedAt: now }, false);
       } catch (error) {
         await loadRemoteData().catch(refreshError => {
           console.error('Failed to refresh records after update failure', refreshError);
