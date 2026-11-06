@@ -141,7 +141,21 @@ export class SavedRecordRefreshRequiredError extends Error {
   }
 }
 
+export class LegacySaveResultUnknownError extends Error {
+  readonly outcome = 'partial_or_unknown';
+  constructor(readonly matchId: string) {
+    super(`保存結果を確認できません（match_id: ${matchId}）。入力とこのIDを保持し、再保存・自動削除をせずDB状態を確認してください。`);
+  }
+}
+
 const pendingRefresh = new Set<string>();
+
+function assertLegacySaveInput(record: MatchRecord) {
+  if (['contract', 'contract_version', 'ticket_changes', 'expected_revision', 'revision'].some(key => Object.hasOwn(record, key))
+      || record.tickets?.some(ticket => Object.hasOwn(ticket, 'clientKey'))) {
+    throw new Error('v2保存要求は専用Atomicアダプターで処理してください。');
+  }
+}
 
 const asNullable = (value: string | undefined) => value || null;
 const asDate = (value: string | null) => value || '';
@@ -299,7 +313,7 @@ export const toMatchRecord = (
   });
 };
 
-const matchPayload = (record: MatchRecord, ownerId: string) => ({
+export const matchPayload = (record: MatchRecord, ownerId: string) => ({
   id: record.id,
   owner_id: ownerId,
   match_date: record.isDateUnknown ? null : asNullable(record.date),
@@ -319,7 +333,7 @@ const matchPayload = (record: MatchRecord, ownerId: string) => ({
   notes: record.notes || null,
 });
 
-const watchPayload = (record: MatchRecord, ownerId: string) => ({
+export const watchPayload = (record: MatchRecord, ownerId: string) => ({
   match_id: record.id,
   owner_id: ownerId,
   watch_status: record.watchStatus,
@@ -426,6 +440,7 @@ export const saveMatchRecord = async (
   record: MatchRecord,
   isNew: boolean,
 ) => {
+  assertLegacySaveInput(record);
   record = normalizeRecordTickets(record);
   if (record.tickets.length > 1) throw new Error('複数チケットがあるため保存できません');
   if (pendingRefresh.has(record.id)) throw new Error('前回の保存は成功しましたが再取得が必要です。最新データを再読み込みしてください。');
@@ -440,19 +455,29 @@ export const saveMatchRecord = async (
   }
   if (!record.tickets.length && existingTickets.data?.length) throw new Error('既存チケットの削除には明示的な削除操作が必要です');
   let matchWritten = false;
+  let uncertainWriteResponse = false;
+  const observeWrite = (result: { status?: number; error?: { code?: string; message?: string } | null }) => {
+    if (result.error && (result.status === 0 || result.status === 408 || (result.status !== undefined && result.status >= 500)
+        || result.error.code?.startsWith('08') || /fetch failed|failed to fetch|networkerror|aborterror/i.test(result.error.message || ''))) {
+      uncertainWriteResponse = true;
+    }
+  };
 
   try {
     const matchResult = await client.from('matches').upsert(matchPayload(record, ownerId)).select().single();
+    observeWrite(matchResult);
     if (matchResult.error) throw new Error(`試合情報の保存に失敗しました: ${matchResult.error.message}`);
     matchWritten = true;
 
     const savedUpdatedAt = matchResult.data?.updated_at;
     const watchResult = await client.from('watch_records').upsert(watchPayload(record, ownerId), { onConflict: 'match_id' });
+    observeWrite(watchResult);
     if (watchResult.error) throw new Error(`観戦情報の保存に失敗しました: ${watchResult.error.message}`);
 
     const watch = await client.from('watch_records').select('id').eq('match_id', record.id).single();
     if (watch.error || !watch.data) throw new Error('観戦記録のID取得に失敗しました。保存状態を確認してください。');
     const categoryDelete = await client.from('watch_record_categories').delete().eq('watch_record_id', watch.data.id);
+    observeWrite(categoryDelete);
     if (categoryDelete.error) throw new Error(`カテゴリ更新に失敗しました。部分保存の可能性があります: ${categoryDelete.error.message}`);
     const categoryRows = record.categories.map(category_id => ({
       owner_id: ownerId,
@@ -462,10 +487,12 @@ export const saveMatchRecord = async (
     }));
     if (categoryRows.length) {
       const categoryInsert = await client.from('watch_record_categories').insert(categoryRows);
+      observeWrite(categoryInsert);
       if (categoryInsert.error) throw new Error(`カテゴリ保存に失敗しました。部分保存の可能性があります: ${categoryInsert.error.message}`);
     }
 
     const seatDelete = await client.from('seats').delete().eq('watch_record_id', watch.data.id);
+    observeWrite(seatDelete);
     if (seatDelete.error) throw new Error(`座席情報の更新に失敗しました。部分保存の可能性があります: ${seatDelete.error.message}`);
     const seat = record.seatInfo;
     if (seat.seatTypeId || seat.seatTypeName || seat.area || seat.row || seat.seatNumber) {
@@ -478,6 +505,7 @@ export const saveMatchRecord = async (
         seat_row: seat.row || null,
         seat_number: seat.seatNumber || null,
       });
+      observeWrite(seatInsert);
       if (seatInsert.error) throw new Error(`座席保存に失敗しました。部分保存の可能性があります: ${seatInsert.error.message}`);
     }
 
@@ -487,9 +515,13 @@ export const saveMatchRecord = async (
     const ticketWrite = !record.tickets.length ? { error: null } : ticketResult.data
       ? await client.from('tickets').update(ticketPayload(record, ownerId)).eq('id', ticketResult.data.id)
       : await client.from('tickets').insert(ticketPayload(record, ownerId));
+    observeWrite(ticketWrite);
     if (ticketWrite.error) throw new Error(`チケット保存に失敗しました。部分保存の可能性があります: ${ticketWrite.error.message}`);
     return { updated_at: savedUpdatedAt || record.updatedAt };
   } catch (error) {
+    if (uncertainWriteResponse || error instanceof TypeError || error instanceof Error && error.name === 'AbortError') {
+      throw new LegacySaveResultUnknownError(record.id);
+    }
     if (isNew && matchWritten) {
       const cleanup = await client.from('matches').delete().eq('id', record.id).eq('owner_id', ownerId);
       if (cleanup.error) {
@@ -520,6 +552,7 @@ export const saveMatchRecordAtomic = async (
   record: MatchRecord,
   options: AtomicSaveOptions = {},
 ) => {
+  assertLegacySaveInput(record);
   record = normalizeRecordTickets(record);
   if (record.tickets.length > 1) throw new Error('複数チケットがあるため保存できません');
   if (pendingRefresh.has(record.id)) throw new Error('前回の保存は成功しましたが再取得が必要です。最新データを再読み込みしてください。');
