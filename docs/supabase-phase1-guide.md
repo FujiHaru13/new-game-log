@@ -94,6 +94,45 @@ RLS_CONFIRM_SELF_APPROVAL=I_CONFIRM_DEDICATED_SELF_APPROVAL_TEST
 
 認証情報・アクセストークンは出力しません。認証情報不足、対象ID不足、クリーンアップ確認不足のテストはPASSにせず、INCONCLUSIVEまたはSKIPPEDとして扱います。承認取り消し試験は、管理者が専用テストユーザーを事前に用意し、手動で承認状態を変更してから同じRESTセッションで実施します。本人アカウントを無断で取り消しません。
 
+ローカルモック検証は実DBへ接続しません。
+
+```bash
+npm run test:rls
+```
+
+実RESTの読み取り専用確認は、既存の検証用試合等のIDをテーブル別に指定して実行します。
+
+```bash
+RLS_EXPECTED_MATCH_ID=b3c8645a-1bd5-4be4-9d10-68f05457c1ea \
+RLS_EXPECTED_WATCH_RECORD_ID=... \
+RLS_EXPECTED_SEAT_ID=... \
+node verify-rls-rest.mjs
+```
+
+書き込み検証は、専用の承認済み本人・未承認ユーザーを用意し、次のように明示的に有効化します。作成されるのは今回の実行で生成した隔離matchだけで、既存IDはUPDATE/DELETEしません。
+
+```bash
+RLS_ALLOW_MUTATIONS=1 \
+RLS_CONFIRM_CLEANUP=I_CONFIRM_CREATED_TEST_DATA_CLEANUP \
+RLS_AUTHORIZED_EMAIL=... \
+RLS_AUTHORIZED_PASSWORD=... \
+RLS_TEST_EMAIL=... \
+RLS_TEST_PASSWORD=... \
+RLS_EXPECTED_MATCH_ID=b3c8645a-1bd5-4be4-9d10-68f05457c1ea \
+RLS_EXPECTED_WATCH_RECORD_ID=... \
+RLS_EXPECTED_SEAT_ID=... \
+node verify-rls-rest.mjs
+```
+
+期待ログには、隔離match作成、未承認UPDATE/DELETEの拒否または0件かつ状態不変、限定DELETE後の不存在確認、`FAIL=0`が含まれます。予期しないINSERT/UPDATE/DELETE成功、状態確認不能、通信例外では後続書き込みと自動クリーンアップを停止し、隔離match UUIDを手動確認用に出力します。
+
+検証終了後は、シェル履歴や環境変数に認証情報を残さないよう、現在のシェルで次を実行します。
+
+```bash
+unset RLS_AUTHORIZED_EMAIL RLS_AUTHORIZED_PASSWORD RLS_TEST_EMAIL RLS_TEST_PASSWORD
+unset VITE_SUPABASE_URL VITE_SUPABASE_PUBLISHABLE_KEY VITE_SUPABASE_ANON_KEY
+```
+
 RLS検証の詳細なPhase 2対応表とRPC案は[`supabase-phase2-plan.md`](./supabase-phase2-plan.md)に記載しています。
 
 ## 未実施・残存リスク

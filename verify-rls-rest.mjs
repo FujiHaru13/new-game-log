@@ -1,5 +1,6 @@
 import { createClient } from '@supabase/supabase-js';
 import { readFileSync } from 'node:fs';
+import { classifyProtectedMutation } from './verify-rls-rest-logic.mjs';
 
 function readEnvFile(path) {
   try {
@@ -228,7 +229,14 @@ async function testIsolatedMutations(authorized, unauthorized) {
     operations.add('UPDATE');
     const update = await unauthorized.client.from('matches')
       .update({ notes: 'must be rejected' }).eq('id', createdMatchId).select('id');
-    if (update.error && isPermissionDenied(update.error)) {
+    const updateStatus = classifyProtectedMutation({
+      operation: 'UPDATE',
+      error: update.error,
+      returnedRows: update.data || [],
+      before: before.data,
+      after: update.error ? null : await authorized.client.from('matches').select('id, notes').eq('id', createdMatchId).single().then((result) => result.data),
+    });
+    if (updateStatus === 'PASS' && update.error && isPermissionDenied(update.error)) {
       pass('未承認ユーザーの隔離matches UPDATEは拒否');
     } else if (update.error) {
       inconclusive(`未承認ユーザーの隔離matches UPDATEの拒否理由をRLSと断定できない (${errorSummary(update.error)})`);
@@ -258,7 +266,14 @@ async function testIsolatedMutations(authorized, unauthorized) {
     operations.add('DELETE');
     const remove = await unauthorized.client.from('matches')
       .delete().eq('id', createdMatchId).select('id');
-    if (remove.error && isPermissionDenied(remove.error)) {
+    const deleteStatus = classifyProtectedMutation({
+      operation: 'DELETE',
+      error: remove.error,
+      returnedRows: remove.data || [],
+      before: before.data,
+      after: remove.error ? null : await authorized.client.from('matches').select('id').eq('id', createdMatchId).single().then((result) => result.data),
+    });
+    if (deleteStatus === 'PASS' && remove.error && isPermissionDenied(remove.error)) {
       pass('未承認ユーザーの隔離matches DELETEは拒否');
     } else if (remove.error) {
       inconclusive(`未承認ユーザーの隔離matches DELETEの拒否理由をRLSと断定できない (${errorSummary(remove.error)})`);
@@ -345,9 +360,6 @@ async function main() {
     else skipped('隔離テストデータ作成（承認済み本人未認証）');
     await testIsolatedMutations(authorized, unauthorized);
     await testSelfApproval(unauthorized);
-    if (authorized) await cleanupIsolatedMatch(authorized);
-    else skipped('隔離テストデータ削除（承認済み本人未認証）');
-
     if (unauthorized) {
       await insertDenied(unauthorized.client, 'matches', {
         owner_id: unauthorized.user.id,
@@ -392,6 +404,8 @@ async function main() {
       skipped('匿名watch_records INSERT（今回作成した隔離match未確認）');
     }
     skipped('匿名seats INSERT（今回の実行で隔離watch_recordを作成していないため未実施）');
+    if (authorized) await cleanupIsolatedMatch(authorized);
+    else skipped('隔離テストデータ削除（承認済み本人未認証）');
   }
 
   if (authorized) await authorized.client.auth.signOut();
@@ -402,6 +416,9 @@ try {
   await main();
 } catch (error) {
   fail(error instanceof Error ? error.message : String(error));
+  if (createdMatchId) {
+    console.error(`手動確認が必要な隔離match UUID: ${createdMatchId}`);
+  }
 }
 
 console.log(`\n--- 最終判定 ---`);
