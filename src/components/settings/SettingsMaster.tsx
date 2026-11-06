@@ -111,7 +111,7 @@ export const SettingsMaster: React.FC = () => {
       anonKey: sbAnonKey,
       isConnected: sbUrl.length > 0 && sbAnonKey.length > 0,
     });
-    setSbStatusMsg('設定を保存しました。現在は安全なデモモード（ローカル保存）で継続動作しています。');
+    setSbStatusMsg('接続設定を保存しました。次回の認証確認からSupabaseのRLS保護されたデータを使用します。');
   };
 
   return (
@@ -461,8 +461,8 @@ export const SettingsMaster: React.FC = () => {
               </h3>
             </div>
             <p className="text-xs text-slate-600 dark:text-slate-400 leading-relaxed">
-              本アプリは現在、安全なローカルストレージ（デモモード）で全機能を動作させています。
-              将来的に本人のSupabaseプロジェクトへ移行する際、下記にURLとAnon Keyを設定することで、シームレスにPostgreSQL同期へ拡張できます。
+              Supabase Project URLとPublishable Keyを設定すると、認証済み本人のデータをRLS経由で読み書きします。
+              service_roleキーは使用せず、未認証・未承認時にデモデータへ自動フォールバックしません。
             </p>
           </div>
 
@@ -488,7 +488,7 @@ export const SettingsMaster: React.FC = () => {
 
             <div>
               <label className="block font-bold text-slate-700 dark:text-slate-300 mb-1">
-                Supabase Anon Public Key (※service_roleは絶対に入力しないでください)
+                Supabase Publishable Key (※service_roleは絶対に入力しないでください)
               </label>
               <input
                 type="password"

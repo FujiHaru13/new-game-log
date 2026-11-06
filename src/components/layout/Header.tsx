@@ -5,7 +5,7 @@
 
 import React from 'react';
 import { useBaseball } from '../../context/BaseballContext';
-import { Plus, Sun, Moon, Laptop, Calendar } from 'lucide-react';
+import { Plus, Sun, Moon, Calendar, LogOut } from 'lucide-react';
 import { CATEGORIES } from '../../data/teams';
 
 interface HeaderProps {
@@ -26,6 +26,7 @@ export const Header: React.FC<HeaderProps> = () => {
     setTheme,
     setIsFormModalOpen,
     setEditingRecord,
+    signOut,
   } = useBaseball();
 
   const handleOpenNewForm = () => {
@@ -125,6 +126,14 @@ export const Header: React.FC<HeaderProps> = () => {
         </div>
 
         {/* Zone 3: Primary Action */}
+        <button
+          onClick={() => void signOut()}
+          title="ログアウト"
+          className="p-2 text-slate-500 hover:text-slate-900 dark:hover:text-slate-100 rounded-lg transition-colors"
+          aria-label="ログアウト"
+        >
+          <LogOut className="w-4 h-4" />
+        </button>
         <button
           onClick={handleOpenNewForm}
           className="flex items-center gap-1.5 px-3.5 py-2 text-xs sm:text-sm font-bold text-white bg-[#003882] hover:bg-[#002868] active:scale-[0.98] rounded-lg transition-all shadow-sm shadow-blue-900/20 whitespace-nowrap shrink-0"

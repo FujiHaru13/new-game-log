@@ -263,7 +263,7 @@ export const RecordFormModal: React.FC<RecordFormModalProps> = ({
   };
 
   // Submit Handler
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setErrorMessage(null);
 
@@ -384,14 +384,14 @@ export const RecordFormModal: React.FC<RecordFormModalProps> = ({
     setIsSubmitting(true);
     try {
       if (initialRecord) {
-        updateRecord({
+        await updateRecord({
           ...recordPayload,
           id: initialRecord.id,
           createdAt: initialRecord.createdAt,
           updatedAt: new Date().toISOString(),
         });
       } else {
-        addRecord(recordPayload);
+        await addRecord(recordPayload);
       }
       onClose();
     } catch (err: any) {

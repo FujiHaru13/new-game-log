@@ -14,6 +14,7 @@ import { StatsDashboard } from './components/stats/StatsDashboard';
 import { ScheduleTickets } from './components/schedule/ScheduleTickets';
 import { SettingsMaster } from './components/settings/SettingsMaster';
 import { RecordFormModal } from './components/records/RecordFormModal';
+import { LoginScreen } from './components/auth/LoginScreen';
 
 const AppContent: React.FC = () => {
   const { activeTab, isFormModalOpen, setIsFormModalOpen, editingRecord, setEditingRecord } = useBaseball();
@@ -30,7 +31,7 @@ const AppContent: React.FC = () => {
         <Header />
 
         {/* Content Viewport */}
-        <main className="flex-1 px-4 sm:px-6 lg:px-8 py-6 max-w-7xl w-full mx-auto">
+        <main className="flex-1 px-4 sm:px-6 lg:px-8 py-6 max-w-[1600px] w-full mx-auto">
           {activeTab === 'home' && <HomeDashboard />}
           {activeTab === 'records' && <RecordList />}
           {activeTab === 'stats' && <StatsDashboard />}
@@ -58,7 +59,18 @@ const AppContent: React.FC = () => {
 export default function App() {
   return (
     <BaseballProvider>
-      <AppContent />
+      <AuthenticatedApp />
     </BaseballProvider>
   );
 }
+
+const AuthenticatedApp: React.FC = () => {
+  const { authLoading, isAuthenticated, isAuthorized } = useBaseball();
+  if (authLoading) {
+    return <div className="min-h-screen flex items-center justify-center bg-slate-50 dark:bg-slate-950 text-sm text-slate-500">認証状態を確認しています...</div>;
+  }
+  if (!isAuthenticated || !isAuthorized) {
+    return <LoginScreen />;
+  }
+  return <AppContent />;
+};

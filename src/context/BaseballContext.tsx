@@ -7,6 +7,9 @@ import React, { createContext, useContext, useState, useEffect } from 'react';
 import { MatchRecord, CategoryId } from '../types/baseball';
 import { INITIAL_SEED_RECORDS } from '../data/seedData';
 import { getMatchResult } from '../utils/baseballUtils';
+import { getSupabaseConnection, saveSupabaseConnection, SupabaseConnection } from '../lib/supabase';
+import { deleteMatchRecord, loadRecordTables, saveMatchRecord, toMatchRecord } from '../lib/supabaseRecords';
+import { Session, User } from '@supabase/supabase-js';
 
 const STORAGE_KEY = 'baseball_watch_log_data_v3_excel';
 const THEME_KEY = 'baseball_watch_log_theme';
@@ -42,9 +45,9 @@ interface BaseballContextType {
   isDarkMode: boolean;
 
   // 操作
-  addRecord: (record: Omit<MatchRecord, 'id' | 'createdAt' | 'updatedAt'>) => MatchRecord;
-  updateRecord: (record: MatchRecord) => void;
-  deleteRecord: (id: string) => void;
+  addRecord: (record: Omit<MatchRecord, 'id' | 'createdAt' | 'updatedAt'>) => Promise<MatchRecord>;
+  updateRecord: (record: MatchRecord) => Promise<void>;
+  deleteRecord: (id: string) => Promise<void>;
   resetToDemoData: () => void;
   importRecords: (incoming: MatchRecord[], mode: 'merge' | 'replace') => { added: number; updated: number };
   exportToJSON: () => void;
@@ -53,13 +56,28 @@ interface BaseballContextType {
   // Supabase設定
   supabaseConfig: SupabaseConfig;
   updateSupabaseConfig: (config: Partial<SupabaseConfig>) => void;
+  authLoading: boolean;
+  user: User | null;
+  isAuthenticated: boolean;
+  isAuthorized: boolean;
+  authError: string | null;
+  signIn: (email: string, password: string) => Promise<void>;
+  signOut: () => Promise<void>;
+  retryConnection: () => Promise<void>;
 }
 
 const BaseballContext = createContext<BaseballContextType | undefined>(undefined);
 
 export const BaseballProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+  const [connection, setConnection] = useState<SupabaseConnection | null>(() => getSupabaseConnection());
+  const [session, setSession] = useState<Session | null>(null);
+  const [authLoading, setAuthLoading] = useState(true);
+  const [authError, setAuthError] = useState<string | null>(null);
+  const [isAuthorized, setIsAuthorized] = useState(false);
+  const [masterDataError, setMasterDataError] = useState<string | null>(null);
   // 記録データ（観戦記録.xlsx の全259試合実データ）
   const [records, setRecords] = useState<MatchRecord[]>(() => {
+    if (getSupabaseConnection()) return [];
     try {
       const stored = localStorage.getItem(STORAGE_KEY);
       if (stored) {
@@ -73,6 +91,86 @@ export const BaseballProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     }
     return INITIAL_SEED_RECORDS;
   });
+
+  const user = session?.user || null;
+  const isAuthenticated = Boolean(user);
+
+  useEffect(() => {
+    if (!connection) {
+      setAuthLoading(false);
+      return;
+    }
+
+    let active = true;
+    const client = connection.client;
+    client.auth.getSession().then(({ data, error }) => {
+      if (!active) return;
+      if (error) setAuthError(`認証状態の取得に失敗しました: ${error.message}`);
+      setSession(data.session);
+      setAuthLoading(false);
+    });
+    const { data: listener } = client.auth.onAuthStateChange((_event, nextSession) => {
+      if (!active) return;
+      setSession(nextSession);
+      setAuthLoading(false);
+      if (!nextSession) {
+        setIsAuthorized(false);
+        setRecords([]);
+      }
+    });
+    return () => {
+      active = false;
+      listener.subscription.unsubscribe();
+    };
+  }, [connection]);
+
+  const loadRemoteData = async () => {
+    if (!connection || !user) return;
+    setAuthError(null);
+    setMasterDataError(null);
+    const authResult = await connection.client
+      .from('authorized_users')
+      .select('user_id')
+      .eq('user_id', user.id)
+      .maybeSingle();
+    if (authResult.error) throw new Error(`本人承認状態の取得に失敗しました: ${authResult.error.message}`);
+    if (!authResult.data) {
+      setIsAuthorized(false);
+      setAuthError('このAuthユーザーはauthorized_usersで承認されていません。管理者による本人承認が必要です。');
+      setRecords([]);
+      return;
+    }
+    setIsAuthorized(true);
+    const masters = await Promise.all([
+      connection.client.from('teams').select('*').order('display_order'),
+      connection.client.from('stadiums').select('*').order('display_order'),
+      connection.client.from('categories').select('*').order('display_order'),
+    ]);
+    const masterError = masters.find(result => result.error)?.error;
+    if (masterError) throw new Error(`マスターデータの読み込みに失敗しました: ${masterError.message}`);
+    const tables = await loadRecordTables(connection.client);
+    const watches = new Map(tables.watches.map(row => [row.match_id, row]));
+    const seats = new Map(tables.seats.map(row => [row.watch_record_id, row]));
+    const tickets = new Map(tables.tickets.map(row => [row.match_id, row]));
+    setRecords(tables.matches.map(match => {
+      const watch = watches.get(match.id);
+      return toMatchRecord(
+        match,
+        watch,
+        tables.categories,
+        watch ? seats.get(watch.id) : undefined,
+        tickets.get(match.id),
+      );
+    }));
+  };
+
+  useEffect(() => {
+    if (!connection || !user) return;
+    loadRemoteData().catch(error => {
+      setAuthError(error instanceof Error ? error.message : 'Supabaseデータの読み込みに失敗しました。');
+      setRecords([]);
+    });
+  }, [connection, user?.id]);
 
   // ナビゲーション
   const [activeTab, setActiveTab] = useState<'home' | 'records' | 'stats' | 'schedule' | 'settings'>('home');
@@ -115,6 +213,7 @@ export const BaseballProvider: React.FC<{ children: React.ReactNode }> = ({ chil
   });
 
   useEffect(() => {
+    if (connection) return;
     const root = document.documentElement;
     const mediaQuery = window.matchMedia('(prefers-color-scheme: dark)');
 
@@ -156,11 +255,34 @@ export const BaseballProvider: React.FC<{ children: React.ReactNode }> = ({ chil
   });
 
   const updateSupabaseConfig = (config: Partial<SupabaseConfig>) => {
+    if (config.anonKey && (config.anonKey.includes('service_role') || config.anonKey.startsWith('sb_secret_'))) {
+      throw new Error('service_role keyやsecret keyはブラウザ設定に保存できません。Publishable Keyを使用してください。');
+    }
     setSupabaseConfig(prev => {
       const next = { ...prev, ...config };
       localStorage.setItem(SUPABASE_CONFIG_KEY, JSON.stringify(next));
+      if (next.url && next.anonKey) {
+        saveSupabaseConnection(next.url, next.anonKey);
+        setConnection(getSupabaseConnection());
+      }
       return next;
     });
+  };
+
+  const signIn = async (email: string, password: string) => {
+    if (!connection) throw new Error('Supabase URLとPublishable Keyを設定してください。');
+    const { error } = await connection.client.auth.signInWithPassword({ email, password });
+    if (error) throw new Error(`ログインに失敗しました: ${error.message}`);
+  };
+
+  const signOut = async () => {
+    if (!connection) return;
+    const { error } = await connection.client.auth.signOut();
+    if (error) throw new Error(`ログアウトに失敗しました: ${error.message}`);
+  };
+
+  const retryConnection = async () => {
+    setConnection(getSupabaseConnection());
   };
 
   // ローカルストレージへの永続化
@@ -173,24 +295,33 @@ export const BaseballProvider: React.FC<{ children: React.ReactNode }> = ({ chil
   }, [records]);
 
   // CRUD
-  const addRecord = (data: Omit<MatchRecord, 'id' | 'createdAt' | 'updatedAt'>): MatchRecord => {
+  const addRecord = async (data: Omit<MatchRecord, 'id' | 'createdAt' | 'updatedAt'>): Promise<MatchRecord> => {
     const now = new Date().toISOString();
     const newRecord: MatchRecord = {
       ...data,
-      id: `rec_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
+      id: crypto.randomUUID(),
       createdAt: now,
       updatedAt: now,
     };
-    setRecords(prev => [newRecord, ...prev]);
+    if (connection && user) {
+      await saveMatchRecord(connection.client, user.id, newRecord, true);
+      setRecords(prev => [newRecord, ...prev]);
+    } else {
+      setRecords(prev => [newRecord, ...prev]);
+    }
     return newRecord;
   };
 
-  const updateRecord = (updated: MatchRecord) => {
+  const updateRecord = async (updated: MatchRecord): Promise<void> => {
     const now = new Date().toISOString();
+    if (connection && user) {
+      await saveMatchRecord(connection.client, user.id, { ...updated, updatedAt: now }, false);
+    }
     setRecords(prev => prev.map(r => (r.id === updated.id ? { ...updated, updatedAt: now } : r)));
   };
 
-  const deleteRecord = (id: string) => {
+  const deleteRecord = async (id: string): Promise<void> => {
+    if (connection && user) await deleteMatchRecord(connection.client, user.id, id);
     setRecords(prev => prev.filter(r => r.id !== id));
     if (selectedRecordId === id) {
       setSelectedRecordId(null);
@@ -335,6 +466,14 @@ export const BaseballProvider: React.FC<{ children: React.ReactNode }> = ({ chil
         exportToCSV,
         supabaseConfig,
         updateSupabaseConfig,
+        authLoading,
+        user,
+        isAuthenticated,
+        isAuthorized,
+        authError: authError || masterDataError,
+        signIn,
+        signOut,
+        retryConnection,
       }}
     >
       {children}

@@ -55,10 +55,14 @@ export const RecordDetail: React.FC<RecordDetailProps> = ({ record, onClose, onE
   const seatType = getSeatType(record.stadiumId, record.seatInfo.seatTypeId);
   const result = getMatchResult(record);
 
-  const handleDeleteConfirm = () => {
-    deleteRecord(record.id);
-    setIsDeleteModalOpen(false);
-    onClose();
+  const handleDeleteConfirm = async () => {
+    try {
+      await deleteRecord(record.id);
+      setIsDeleteModalOpen(false);
+      onClose();
+    } catch (error) {
+      window.alert(error instanceof Error ? error.message : '削除に失敗しました。');
+    }
   };
 
   const innings = record.innings;
