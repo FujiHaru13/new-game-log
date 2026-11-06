@@ -9,11 +9,12 @@
     "test:rls": "node --test verify-rls-rest.test.mjs",
     "test:phase2a": "tsx --test phase2a-persistence.test.ts",
     "test:phase2a:rest": "node --test verify-phase2a-rest.test.mjs",
-    "test": "npm run test:rls && npm run test:phase2a && npm run test:phase2a:rest",
+    "test": "npm run test:rls && npm run test:phase2a && npm run test:phase2a:rest && npm run test:phase2b:delete",
     "preview": "vite preview",
     "clean": "rm -rf dist server.js",
     "lint": "tsc --noEmit",
-    "test:phase2b:db": "node --test supabase/verification/phase2b-0009/database.test.mjs"
+    "test:phase2b:db": "node --test --test-concurrency=1 supabase/verification/phase2b-0009/database.test.mjs supabase/verification/phase2b-0009/parent-delete.test.mjs",
+    "test:phase2b:delete": "tsx --test phase2b-parent-delete-persistence.test.ts"
   },
   "dependencies": {
     "@google/genai": "^2.4.0",

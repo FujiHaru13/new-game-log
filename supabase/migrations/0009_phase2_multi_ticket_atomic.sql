@@ -86,6 +86,58 @@ drop trigger if exists tickets_protect_payments on public.tickets;
 create trigger tickets_protect_payments before delete on public.tickets
 for each row execute function public.protect_ticket_payments();
 
+-- Reject at the parent BEFORE ROW boundary, before any FK AFTER-trigger can
+-- remove a payment through another cascade path (including watch-only payments).
+create or replace function public.protect_parent_payments()
+returns trigger language plpgsql security invoker
+set search_path = public, pg_catalog as $$
+begin
+  if tg_table_name = 'matches' then
+    if exists (select 1 from public.payments where match_id = old.id) then
+      raise exception using errcode = '23503', message = 'match has related payments; deletion is forbidden';
+    end if;
+  elsif tg_table_name = 'watch_records' then
+    if exists (select 1 from public.payments where watch_record_id = old.id) then
+      raise exception using errcode = '23503', message = 'watch record has related payments; deletion is forbidden';
+    end if;
+  else
+    raise exception using errcode = '22023', message = 'unsupported payment protection parent';
+  end if;
+  return old;
+end;
+$$;
+
+drop trigger if exists matches_protect_payments on public.matches;
+create trigger matches_protect_payments before delete on public.matches
+for each row execute function public.protect_parent_payments();
+drop trigger if exists watch_records_protect_payments on public.watch_records;
+create trigger watch_records_protect_payments before delete on public.watch_records
+for each row execute function public.protect_parent_payments();
+
+-- Defense in depth: FK CASCADE executes DELETE from a trigger. Deny nested
+-- trigger deletes regardless of cascade order, even if another FK path has
+-- already removed a parent. Top-level DELETE and ordinary function/RPC DELETE
+-- remain allowed while all referenced parents exist. No user-settable bypass.
+create or replace function public.protect_payment_parent_delete()
+returns trigger language plpgsql security invoker
+set search_path = public, pg_catalog as $$
+begin
+  if pg_catalog.pg_trigger_depth() > 1
+     or not exists (select 1 from public.matches where id = old.match_id)
+     or (old.watch_record_id is not null and not exists (
+       select 1 from public.watch_records where id = old.watch_record_id and match_id = old.match_id))
+     or (old.ticket_id is not null and not exists (
+       select 1 from public.tickets where id = old.ticket_id and match_id = old.match_id)) then
+    raise exception using errcode = '23503', message = 'implicit or triggered payment deletion is forbidden; delete payments explicitly while parents exist';
+  end if;
+  return old;
+end;
+$$;
+
+drop trigger if exists payments_protect_parent_delete on public.payments;
+create trigger payments_protect_parent_delete before delete on public.payments
+for each row execute function public.protect_payment_parent_delete();
+
 do $triggers$
 declare
   v_table text;
@@ -712,6 +764,7 @@ $$;
 
 revoke all on function public.match_write_gate(), public.advance_match_revision(),
   public.propagate_match_revision(), public.protect_ticket_payments(),
+  public.protect_parent_payments(), public.protect_payment_parent_delete(),
   public.validate_ticket_changes_values(jsonb), public.save_match_record(jsonb),
   public.get_match_record_snapshot(uuid) from public, anon, authenticated;
 grant execute on function public.validate_ticket_changes_values(jsonb), public.save_match_record(jsonb),
