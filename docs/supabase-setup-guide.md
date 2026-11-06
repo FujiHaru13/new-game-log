@@ -10,6 +10,8 @@
 
 ## 2. 実行順序とトランザクション境界
 
+一度に実行する提出物は[`supabase/setup/new_game_log_initial_setup.sql`](../supabase/setup/new_game_log_initial_setup.sql)です。これは下記4本を順序どおり連結し、外側の`BEGIN`/`COMMIT`だけを追加した生成物です。個別マイグレーションを別々のセッションで実行しないでください。
+
 1. `supabase/migrations/0001_initial_schema.sql`
 2. `supabase/migrations/0002_rls_policies.sql`
 3. `supabase/migrations/0003_views_functions.sql`
