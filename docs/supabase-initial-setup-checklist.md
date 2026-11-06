@@ -30,8 +30,9 @@
 - [ ] 複合FK `payments_watch_record_match_owner_fk` と `payments_ticket_match_owner_fk` が存在する
 - [ ] `pg_tables.tablename` / `pg_tables.rowsecurity`の結果で全個人テーブルのRLSが有効である
 - [ ] 必須ポリシー一覧に`MISSING`がない
-- [ ] `public_has_usage`が`false`である
-- [ ] `anon`のスキーマ・テーブル・ビュー権限がない
+- [ ] `public_has_usage`が`true`（Supabase既定のPUBLIC USAGE維持）である
+- [ ] `anon`のアプリ専用19テーブルの実効SELECT/INSERT/UPDATE/DELETE権限が全て`false`
+- [ ] `anon`のアプリ専用ビュー権限がない
 - [ ] `authenticated`には必要な権限がある
 - [ ] ビューの`reloptions`に`security_invoker=true`が確認できる
 - [ ] 以上のいずれかが満たされない場合、Authユーザー作成やデータ投入をSTOPする

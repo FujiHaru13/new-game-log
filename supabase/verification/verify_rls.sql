@@ -42,6 +42,26 @@ from pg_namespace n
 where n.nspname = 'public';
 
 select
+  app.table_name,
+  has_table_privilege('anon', format('public.%I', app.table_name), 'SELECT') as anon_select,
+  has_table_privilege('anon', format('public.%I', app.table_name), 'INSERT') as anon_insert,
+  has_table_privilege('anon', format('public.%I', app.table_name), 'UPDATE') as anon_update,
+  has_table_privilege('anon', format('public.%I', app.table_name), 'DELETE') as anon_delete,
+  has_table_privilege('authenticated', format('public.%I', app.table_name), 'SELECT') as authenticated_select,
+  has_table_privilege('authenticated', format('public.%I', app.table_name), 'INSERT') as authenticated_insert,
+  has_table_privilege('authenticated', format('public.%I', app.table_name), 'UPDATE') as authenticated_update,
+  has_table_privilege('authenticated', format('public.%I', app.table_name), 'DELETE') as authenticated_delete
+from (
+  values
+    ('authorized_users'), ('teams'), ('categories'), ('stadiums'), ('seat_types'),
+    ('stadium_seat_types'), ('matches'), ('watch_records'),
+    ('watch_record_categories'), ('seats'), ('tickets'), ('payments'),
+    ('match_inning_scores'), ('match_team_totals'), ('match_pitchers'),
+    ('match_events'), ('match_links'), ('import_batches'), ('import_rows')
+) as app(table_name)
+order by app.table_name;
+
+select
   expected.table_name,
   count(p.policyname)::integer as policy_count,
   count(p.policyname) filter (where p.cmd = 'SELECT' or p.cmd = 'ALL')::integer as select_capable,

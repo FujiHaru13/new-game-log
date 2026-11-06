@@ -129,7 +129,6 @@ create policy import_rows_owner_all on public.import_rows
 for all to authenticated using (owner_id = auth.uid() and public.current_user_is_authorized() and exists (select 1 from public.import_batches b where b.id = batch_id and b.owner_id = auth.uid()))
 with check (owner_id = auth.uid() and public.current_user_is_authorized() and exists (select 1 from public.import_batches b where b.id = batch_id and b.owner_id = auth.uid()));
 
-revoke all on all tables in schema public from anon;
 revoke all on public.authorized_users from authenticated;
 grant usage on schema public to authenticated;
 grant select on public.teams, public.categories, public.stadiums, public.seat_types, public.stadium_seat_types to authenticated;

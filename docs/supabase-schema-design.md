@@ -95,7 +95,7 @@ erDiagram
 
 ## RLS・認可
 
-全テーブルでRLSを有効化しています。個人テーブルは`owner_id = auth.uid()`と`current_user_is_authorized()`、子テーブルは親の所有者確認も要求します。SELECT/INSERT/UPDATE/DELETEの全操作で承認状態を確認するため、承認取り消し後は既存データも操作できません。UPDATEの`WITH CHECK`により所有者を別UUIDへ変更できません。匿名ロールにはスキーマ使用権限・テーブル権限・ビュー権限を付与していません。
+全テーブルでRLSを有効化しています。個人テーブルは`owner_id = auth.uid()`と`current_user_is_authorized()`、子テーブルは親の所有者確認も要求します。SELECT/INSERT/UPDATE/DELETEの全操作で承認状態を確認するため、承認取り消し後は既存データも操作できません。UPDATEの`WITH CHECK`により所有者を別UUIDへ変更できません。Supabaseサービスとの互換性のためpublicスキーマのPUBLIC USAGEは維持しますが、匿名ロールにはアプリ専用テーブルの実効権限・ビュー権限を付与しません。
 
 マスターは承認済みユーザーだけがSELECTできます。現行の個人専用運用では、承認済みユーザーが共有マスターの追加・変更・削除も行える仕様です。将来複数利用者や管理者を分離する場合は、`authorized_users`に管理者ロールを追加し、マスター管理ポリシーを管理者ロール専用へ分離します。承認テーブル自身は本人行だけSELECT可能で、一般ユーザーが自分を承認するINSERTポリシーはありません。
 

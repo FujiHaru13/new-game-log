@@ -10,9 +10,8 @@ BEGIN;
 
 create extension if not exists pgcrypto;
 
--- Keep the API roles out of public objects until the RLS migration is complete.
--- The SQL Editor/service role remains able to create the schema.
-revoke usage on schema public from public, anon, authenticated;
+-- Keep the application tables inaccessible until the RLS migration is complete.
+-- Leave public schema USAGE intact because Supabase services depend on it.
 
 create table public.authorized_users (
   user_id uuid primary key references auth.users(id) on delete cascade,
@@ -479,7 +478,6 @@ create policy import_rows_owner_all on public.import_rows
 for all to authenticated using (owner_id = auth.uid() and public.current_user_is_authorized() and exists (select 1 from public.import_batches b where b.id = batch_id and b.owner_id = auth.uid()))
 with check (owner_id = auth.uid() and public.current_user_is_authorized() and exists (select 1 from public.import_batches b where b.id = batch_id and b.owner_id = auth.uid()));
 
-revoke all on all tables in schema public from anon;
 revoke all on public.authorized_users from authenticated;
 grant usage on schema public to authenticated;
 grant select on public.teams, public.categories, public.stadiums, public.seat_types, public.stadium_seat_types to authenticated;

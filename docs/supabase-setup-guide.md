@@ -19,7 +19,7 @@
 5. `supabase/verification/verify_schema.sql`
 6. `supabase/verification/verify_rls.sql`
 
-新規プロジェクトでは、1〜4を**1つのトランザクション**として実行し、各ファイルの間にAPIクライアントから接続しないでください。実行単位は、SQL Editorで次の順に`BEGIN`、0001、0002、0003、0004、`COMMIT`を同一エディタ実行に含めることです。`0001`の先頭でPUBLIC/anon/authenticatedの`public`スキーマ使用権限を取り上げ、0001末尾で作成テーブルへの権限も取り上げ、0002の最後で承認済みauthenticated向け権限だけを戻します。これにより、途中失敗時は`ROLLBACK`で初期構築全体を戻せます。
+新規プロジェクトでは、1〜4を**1つのトランザクション**として実行し、各ファイルの間にAPIクライアントから接続しないでください。実行単位は、SQL Editorで次の順に`BEGIN`、0001、0002、0003、0004、`COMMIT`を同一エディタ実行に含めることです。`public`スキーマのPUBLIC USAGEはSupabaseサービスのため維持します。0001では今回作成するアプリ専用テーブルだけの権限を遮断し、0002の最後で承認済みauthenticated向け権限だけを戻します。これにより、途中失敗時は`ROLLBACK`で初期構築全体を戻せます。
 
 SQL Editorで実行する場合の形は次のとおりです。各ファイル内容をこの順に連結して実行します。
 
@@ -80,6 +80,7 @@ SQL Editor管理者セッションではRLSを正しく再現できないため�
 
 - `new row violates row-level security`: Authセッションがない、または`authorized_users`に本人UUIDがない。`owner_id`を固定値にしない。
 - `permission denied for table`: anonキーで管理者SQLを実行している。マスター投入・承認はSQL Editor等の管理者経路で行う。
+- `public_has_usage`が`true`: SupabaseではPUBLICのpublicスキーマUSAGEは維持します。これはアプリ専用テーブルの実効権限やRLSを許可するものではありません。19テーブルのanon権限がfalseであることを別途確認します。
 - `violates foreign key constraint`: マスターのIDが未投入、または現行TSのIDとDBのIDが異なる。ID対応表を確認する。
 - `payments_*_match_owner_fk`違反: 支払いの`match_id`と、指定した観戦記録またはチケットの`match_id`が一致していない。支払い対象を同じ試合から選ぶ。
 - `score confirmation`のCHECK違反: 確定フラグを立てる前に両スコアを入力する。未入力はNULLのままにする。
