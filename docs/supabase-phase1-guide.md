@@ -72,7 +72,7 @@ curl -i "$VITE_SUPABASE_URL/rest/v1/matches?select=id" \
 
 ### REST検証スクリプト
 
-ルートの[`verify-rls-rest.mjs`](../verify-rls-rest.mjs)は、既定では既存データを書き換えません。`RLS_EXPECTED_MATCH_ID`を設定すると、匿名・未承認ユーザーの`matches`、`watch_records`、`seats`の対象行SELECT、matchesのINSERT/UPDATE/DELETEを確認します。エラーコード・HTTPステータスが権限拒否を示す場合だけRLS拒否としてPASSにし、入力不備等はINCONCLUSIVEにします。
+ルートの[`verify-rls-rest.mjs`](../verify-rls-rest.mjs)は、既定の読み取り専用モードではINSERT・UPDATE・DELETEを一切送信しません。認証、承認済み本人による対象行の正確な1件SELECT、匿名・未承認ユーザーによる対象行の非取得だけを確認します。`RLS_EXPECTED_MATCH_ID`、`RLS_EXPECTED_WATCH_RECORD_ID`、`RLS_EXPECTED_SEAT_ID`はテーブル別の主キーとして扱い、対象行を承認済みセッションで事前確認できない場合はSKIPPEDとします。なお、現在のDDLでは`seats`に`id`列はなく、`watch_record_id`がPRIMARY KEYなので、`RLS_EXPECTED_SEAT_ID`の値も`watch_record_id`を指定します。
 
 承認済み本人のCRUDと隔離行の作成・削除を実施する場合だけ、次を明示設定します。
 
@@ -85,9 +85,14 @@ RLS_TEST_EMAIL=...
 RLS_TEST_PASSWORD=...
 RLS_EXPECTED_MATCH_ID=...
 RLS_EXPECTED_WATCH_RECORD_ID=...
+RLS_EXPECTED_SEAT_ID=...
+RLS_SELF_APPROVAL_TEST_USER_ID=...
+RLS_CONFIRM_SELF_APPROVAL=I_CONFIRM_DEDICATED_SELF_APPROVAL_TEST
 ```
 
-このモードでも、スクリプトが作成したUUIDの行だけを削除します。既存の検証試合や実在記録は削除しません。認証情報・アクセストークンは出力しません。認証情報不足、対象ID不足、クリーンアップ確認不足のテストはPASSにせず、INCONCLUSIVEまたはSKIPPEDとして扱います。承認取り消し試験は、管理者が専用テストユーザーを事前に用意し、手動で承認状態を変更してから同じRESTセッションで実施します。本人アカウントを無断で取り消しません。`RLS_EXPECTED_WATCH_RECORD_ID`は`seats` INSERT拒否の対象を特定するためだけに使います。
+`RLS_ALLOW_MUTATIONS=1`を指定した場合だけ、専用の未承認ユーザーによるINSERT拒否、承認済み本人が今回作成した隔離matchのUPDATE、未承認ユーザーのUPDATE/DELETE拒否、作成したmatchの限定DELETEと削除後不存在確認を行います。`RLS_CONFIRM_CLEANUP`がない場合は隔離データを作成しません。既存の検証試合・観戦記録・座席はUPDATE/DELETE対象にしません。自己承認INSERTは専用ユーザーIDと`RLS_CONFIRM_SELF_APPROVAL`の両方が必要です。予期しない変更成功時はFAILとして破壊的テストを停止し、対象IDを表示します。
+
+認証情報・アクセストークンは出力しません。認証情報不足、対象ID不足、クリーンアップ確認不足のテストはPASSにせず、INCONCLUSIVEまたはSKIPPEDとして扱います。承認取り消し試験は、管理者が専用テストユーザーを事前に用意し、手動で承認状態を変更してから同じRESTセッションで実施します。本人アカウントを無断で取り消しません。
 
 RLS検証の詳細なPhase 2対応表とRPC案は[`supabase-phase2-plan.md`](./supabase-phase2-plan.md)に記載しています。
 
