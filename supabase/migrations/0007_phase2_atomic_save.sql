@@ -370,7 +370,7 @@ begin
 
   if coalesce((v_replace ->> 'pitchers')::boolean, false) then
     delete from public.match_pitchers where match_id = v_match_id;
-    foreach v_role in array['homeStarter', 'awayStarter', 'winningPitcher', 'losingPitcher', 'savePitcher'] loop
+    foreach v_role in array (array['homeStarter', 'awayStarter', 'winningPitcher', 'losingPitcher', 'savePitcher']::text[]) loop
       v_player := nullif(p_payload #>> array['pitchers', v_role], '');
       if v_player is not null then
         insert into public.match_pitchers (match_id, side, role, player_name)
