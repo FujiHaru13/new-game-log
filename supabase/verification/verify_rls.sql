@@ -31,6 +31,22 @@ where r.rolname in ('anon', 'authenticated')
   and n.nspname = 'public'
 order by r.rolname;
 
+select grantee, table_schema, privilege_type
+from information_schema.role_schema_grants
+where table_schema = 'public'
+  and grantee in ('PUBLIC', 'anon', 'authenticated')
+order by grantee, privilege_type;
+
+select
+  coalesce(array_to_string(n.nspacl, ','), '<default>') as public_schema_acl,
+  exists (
+    select 1
+    from aclexplode(coalesce(n.nspacl, acldefault('n', n.nspowner))) a
+    where a.grantee = 0 and a.privilege_type = 'USAGE'
+  ) as public_has_usage
+from pg_namespace n
+where n.nspname = 'public';
+
 select
   expected.table_name,
   count(p.policyname)::integer as policy_count,
@@ -47,6 +63,29 @@ left join pg_policies p
   on p.schemaname = 'public' and p.tablename = expected.table_name
 group by expected.table_name
 order by expected.table_name;
+
+select expected.policyname,
+       expected.tablename,
+       case when p.policyname is null then 'MISSING' else 'OK' end as status
+from (
+  values
+    ('matches_select_owner', 'matches'),
+    ('matches_insert_authorized_owner', 'matches'),
+    ('matches_update_owner', 'matches'),
+    ('matches_delete_owner', 'matches'),
+    ('watch_records_owner_all', 'watch_records'),
+    ('watch_record_categories_owner_all', 'watch_record_categories'),
+    ('seats_owner_all', 'seats'),
+    ('tickets_owner_all', 'tickets'),
+    ('payments_owner_all', 'payments'),
+    ('import_batches_owner_all', 'import_batches'),
+    ('import_rows_owner_all', 'import_rows')
+) as expected(policyname, tablename)
+left join pg_policies p
+  on p.schemaname = 'public'
+ and p.policyname = expected.policyname
+ and p.tablename = expected.tablename
+order by expected.tablename, expected.policyname;
 
 select routine_name, privilege_type, grantee
 from information_schema.routine_privileges

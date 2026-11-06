@@ -6,7 +6,7 @@ create extension if not exists pgcrypto;
 
 -- Keep the API roles out of public objects until the RLS migration is complete.
 -- The SQL Editor/service role remains able to create the schema.
-revoke usage on schema public from anon, authenticated;
+revoke usage on schema public from public, anon, authenticated;
 
 create table public.authorized_users (
   user_id uuid primary key references auth.users(id) on delete cascade,
@@ -35,10 +35,6 @@ create table public.categories (
   display_order integer not null default 0,
   is_active boolean not null default true
 );
-alter table public.authorized_users
-  add constraint authorized_users_default_cheer_team_fk
-  foreign key (default_cheer_team_id) references public.teams(id) on delete restrict;
-
 create table public.stadiums (
   id text primary key,
   name text not null,
@@ -49,6 +45,9 @@ create table public.stadiums (
   display_order integer not null default 0,
   is_active boolean not null default true
 );
+alter table public.authorized_users
+  add constraint authorized_users_default_cheer_team_fk
+  foreign key (default_cheer_team_id) references public.teams(id) on delete restrict;
 
 create table public.seat_types (
   id text primary key,
@@ -95,9 +94,6 @@ create table public.matches (
   ),
   constraint matches_score_confirmation_ck check (
     not score_confirmed or (home_score is not null and away_score is not null)
-  ),
-  constraint matches_stadium_ck check (
-    stadium_id is not null or nullif(trim(stadium_custom_name), '') is not null
   ),
   constraint matches_teams_distinct_ck check (home_team_id <> away_team_id),
   constraint matches_owner_legacy_unique unique (owner_id, legacy_id)
@@ -270,6 +266,15 @@ create table public.import_rows (
 alter table public.import_batches add constraint import_batches_id_owner_unique unique (id, owner_id);
 alter table public.import_rows add constraint import_rows_batch_owner_fk
   foreign key (batch_id, owner_id) references public.import_batches(id, owner_id) on delete cascade;
+
+-- Keep the API roles and PUBLIC unable to reach newly-created tables until
+-- 0002 has installed RLS and restored only the intended authenticated grants.
+revoke all on public.authorized_users, public.teams, public.categories, public.stadiums,
+  public.seat_types, public.stadium_seat_types, public.matches, public.watch_records,
+  public.watch_record_categories, public.seats, public.tickets, public.payments,
+  public.match_inning_scores, public.match_team_totals, public.match_pitchers,
+  public.match_events, public.match_links, public.import_batches, public.import_rows
+  from public, anon, authenticated;
 
 create index matches_owner_date_idx on public.matches (owner_id, match_date);
 create index matches_owner_status_idx on public.matches (owner_id, match_status);

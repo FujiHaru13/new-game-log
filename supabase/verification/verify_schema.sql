@@ -12,6 +12,20 @@ where table_schema = 'public'
   )
 order by table_name;
 
+select expected.table_name,
+       case when actual.table_name is null then 'MISSING' else 'OK' end as status
+from (
+  values
+    ('authorized_users'), ('teams'), ('categories'), ('stadiums'), ('seat_types'),
+    ('stadium_seat_types'), ('matches'), ('watch_records'),
+    ('watch_record_categories'), ('seats'), ('tickets'), ('payments'),
+    ('match_inning_scores'), ('match_team_totals'), ('match_pitchers'),
+    ('match_events'), ('match_links'), ('import_batches'), ('import_rows')
+) as expected(table_name)
+left join information_schema.tables actual
+  on actual.table_schema = 'public' and actual.table_name = expected.table_name
+order by expected.table_name;
+
 select table_name, constraint_name, constraint_type
 from information_schema.table_constraints
 where table_schema = 'public'
@@ -42,11 +56,20 @@ where routine_schema = 'public'
   and routine_name in ('set_updated_at', 'current_user_is_authorized')
 order by routine_name;
 
-select table_name, table_type
+select table_name
 from information_schema.views
 where table_schema = 'public'
   and table_name in ('watch_record_costs', 'dashboard_match_facts', 'category_statistics')
 order by table_name;
+
+select expected.object_name,
+       case when actual.table_name is null then 'MISSING' else 'OK' end as status
+from (
+  values ('watch_record_costs'), ('dashboard_match_facts'), ('category_statistics')
+) as expected(object_name)
+left join information_schema.views actual
+  on actual.table_schema = 'public' and actual.table_name = expected.object_name
+order by expected.object_name;
 
 select c.relname as view_name, c.reloptions
 from pg_class c
@@ -81,6 +104,19 @@ where tc.table_schema = 'public'
     'import_rows_batch_owner_fk'
   )
 order by tc.table_name, tc.constraint_name, kcu.ordinal_position;
+
+select
+  c.conname as constraint_name,
+  c.conrelid::regclass as table_name,
+  pg_get_constraintdef(c.oid) as definition,
+  case when c.contype = 'f' then 'OK' else 'UNEXPECTED' end as status
+from pg_constraint c
+where c.conname in (
+  'payments_match_owner_fk',
+  'payments_watch_record_owner_fk',
+  'payments_ticket_owner_fk'
+)
+order by c.conname;
 
 select 'teams' as master_name, count(*)::bigint as row_count from public.teams
 union all select 'categories', count(*) from public.categories

@@ -46,7 +46,7 @@
 
 - `teams`: 球団・代表チーム。現行`teams.ts`の名称・識別子を初期投入。
 - `categories`: 中日1軍、2軍、日本代表、その他。
-- `stadiums`: 現行`stadiums.ts`にある球場名と所在地。席種属性は推測で大量投入しない。
+- `stadiums`: 現行`stadiums.ts`にある球場名と所在地。席種属性は推測で大量投入しない。球場不明は`matches.stadium_id`と`stadium_custom_name`をともにNULLとして保存し、`other_stadium`とは区別する。
 - `seat_types`: 席種の拡張用マスター。
 - `stadium_seat_types`: 球場と席種の多対多関係。
 

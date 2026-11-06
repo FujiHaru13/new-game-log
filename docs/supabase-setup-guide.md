@@ -17,9 +17,20 @@
 5. `supabase/verification/verify_schema.sql`
 6. `supabase/verification/verify_rls.sql`
 
-新規プロジェクトでは、1〜4を同じSQL Editorセッションで連続して実行し、各ファイルの間にAPIクライアントから接続しないでください。`0001`の先頭でanon/authenticatedの`public`スキーマ使用権限を取り上げ、`0002`の最後で承認済みauthenticated向け権限だけを戻します。したがって、途中で失敗した場合はAPIを再開せず、失敗箇所を確認して新しいプロジェクトまたはレビュー済み差分で再実行します。
+新規プロジェクトでは、1〜4を**1つのトランザクション**として実行し、各ファイルの間にAPIクライアントから接続しないでください。実行単位は、SQL Editorで次の順に`BEGIN`、0001、0002、0003、0004、`COMMIT`を同一エディタ実行に含めることです。`0001`の先頭でPUBLIC/anon/authenticatedの`public`スキーマ使用権限を取り上げ、0001末尾で作成テーブルへの権限も取り上げ、0002の最後で承認済みauthenticated向け権限だけを戻します。これにより、途中失敗時は`ROLLBACK`で初期構築全体を戻せます。
 
-可能なら、SQL Editorで1〜4を1つのトランザクション境界（`BEGIN`から`COMMIT`）にまとめて実行します。Supabase CLI等が外側のトランザクションを管理する場合は、CLIの管理に任せてSQLへ二重の`BEGIN`/`COMMIT`を追加しません。既存スキーマに対して再実行せず、破壊的な`DROP ... CASCADE`も使用しません。
+SQL Editorで実行する場合の形は次のとおりです。各ファイル内容をこの順に連結して実行します。
+
+```sql
+begin;
+-- 0001_initial_schema.sql
+-- 0002_rls_policies.sql
+-- 0003_views_functions.sql
+-- 0004_seed_master_data.sql
+commit;
+```
+
+途中でエラーになった場合は同じセッションで`rollback;`を実行し、原因を直して新しいトランザクションとして最初から実行します。Supabase CLI等が外側のトランザクションを管理する場合は、CLIの管理に任せてSQLへ二重の`BEGIN`/`COMMIT`を追加しません。既存スキーマに対して再実行せず、破壊的な`DROP ... CASCADE`も使用しません。
 
 検証SQLは読み取り専用です。SQL Editorの管理者権限でのSELECTだけでは、anonや別AuthユーザーのRLS実動作は証明できません。
 
@@ -71,6 +82,7 @@ SQL Editor管理者セッションではRLSを正しく再現できないため�
 - `score confirmation`のCHECK違反: 確定フラグを立てる前に両スコアを入力する。未入力はNULLのままにする。
 - ビューで行が見えない: `security_invoker`により基表RLSが適用されている。呼び出し元のAuth UIDと承認状態を確認する。
 - 同日登録が拒否される: このスキーマには日付UNIQUE制約はない。別のクライアント側重複チェックを確認する。
+- 球場不明: `matches.stadium_id`と`stadium_custom_name`は両方NULLを許容する。`NULL`は不明・未入力、`other_stadium`は実際に「その他球場」と判明している場合だけ使う。表示時はマスター名、自由入力名、不明ラベルの順に解決する。
 
 ## 8. ロールバック
 
