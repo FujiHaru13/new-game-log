@@ -8,7 +8,7 @@
 - `service_role`キーやDBパスワードをフロントエンド、Git、ドキュメントへ保存しません。
 - 初期マイグレーションは既存スキーマを壊す`DROP ... CASCADE`を含みません。再実行すると既存オブジェクトで失敗するため、再適用は行わず、必要なら新しい番号の差分マイグレーションを作成します。
 
-## 2. 実行順序
+## 2. 実行順序とトランザクション境界
 
 1. `supabase/migrations/0001_initial_schema.sql`
 2. `supabase/migrations/0002_rls_policies.sql`
@@ -16,6 +16,10 @@
 4. `supabase/migrations/0004_seed_master_data.sql`
 5. `supabase/verification/verify_schema.sql`
 6. `supabase/verification/verify_rls.sql`
+
+新規プロジェクトでは、1〜4を同じSQL Editorセッションで連続して実行し、各ファイルの間にAPIクライアントから接続しないでください。`0001`の先頭でanon/authenticatedの`public`スキーマ使用権限を取り上げ、`0002`の最後で承認済みauthenticated向け権限だけを戻します。したがって、途中で失敗した場合はAPIを再開せず、失敗箇所を確認して新しいプロジェクトまたはレビュー済み差分で再実行します。
+
+可能なら、SQL Editorで1〜4を1つのトランザクション境界（`BEGIN`から`COMMIT`）にまとめて実行します。Supabase CLI等が外側のトランザクションを管理する場合は、CLIの管理に任せてSQLへ二重の`BEGIN`/`COMMIT`を追加しません。既存スキーマに対して再実行せず、破壊的な`DROP ... CASCADE`も使用しません。
 
 検証SQLは読み取り専用です。SQL Editorの管理者権限でのSELECTだけでは、anonや別AuthユーザーのRLS実動作は証明できません。
 
@@ -44,13 +48,14 @@ VITE_SUPABASE_ANON_KEY=<publishable-or-anon-key>
 
 `service_role`キー、DB接続文字列、Auth管理APIキーは設定しません。現行アプリの設定画面は値をlocalStorageへ保存するだけでDB接続を行わないため、Supabase移行時に置き換えが必要です。
 
-## 5. RLS受入テスト
+## 5. RLS受入テスト（REST）
 
-本番データ投入前に、最低3セッションで確認します。
+本番データ投入前に、Supabase URLとanon keyを使う別REST/JSセッションで確認します。管理者キーは使いません。テスト用の承認済みユーザーA、未承認ユーザーBを用意し、匿名セッションも用意します。
 
-1. **匿名**: `anon`クライアントで個人テーブルSELECT/INSERT/UPDATE/DELETEが0件またはpermission deniedになること。マスターSELECTも、アプリ要件に合わせて公開範囲を確認する。
-2. **未承認Authユーザー**: Authログイン後、マスターSELECT以外の個人データSELECTが0件、INSERTが拒否されること。
-3. **承認済み本人**: 自分の`owner_id`の行だけCRUDでき、別UUIDをINSERT/UPDATEできないこと。別ユーザーのUUIDを`owner_id`にしたINSERT、既存行の所有者変更、別所有者の子行参照を試す。
+1. **匿名**: `/rest/v1/teams`、個人テーブル、各ビューをGETし、全て401/403または0件相当であること。POST/PATCH/DELETEも拒否されること。
+2. **未承認AuthユーザーB**: マスターGET、個人データGET、各ビューGET、個人データPOST/PATCH/DELETEを試し、全て拒否されること。承認状態の自己INSERT/UPDATE/DELETEも拒否されること。
+3. **承認済み本人A**: マスターGETと自分の個人データCRUDが成功すること。`owner_id`をBや任意UUIDにしたPOST、既存行のowner変更、別所有者の子行・ビュー参照を試し拒否されること。
+4. **承認取り消し**: 管理者経路でAの`authorized_users`行を削除または無効化し、同じAセッションで個人テーブル・ビューのGET/PATCH/DELETEが拒否されること。matchesのDELETEによるCASCADEも実行できないこと。
 
 SQL Editor管理者セッションではRLSを正しく再現できないため、Supabase JSのanon key + 各ユーザーのセッションで実施します。
 

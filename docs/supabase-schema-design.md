@@ -90,16 +90,18 @@ erDiagram
 - 金額・得点・枚数・試合時間は負数を拒否。
 - `owner_id`ごとの`legacy_id`以外に、日付だけのUNIQUEは作らない。
 - 観戦勝率は`wins / (wins + losses)`。引分・中止・予定は分母から除外。
-- `dashboard_match_facts`はカテゴリを結合しないため全体集計の二重計上を避ける。カテゴリ別集計は`category_statistics`を使い、カテゴリ所属分として明示的に集計する。
+- `dashboard_match_facts`はカテゴリを結合しないため全体集計の二重計上を避ける。応援チームがホーム／ビジターのどちらにも一致しない場合は`unknown`とし、勝率から除外する。予定・結果未入力は`scheduled`、延期は`postponed`、中止は`cancelled`、同点は`draw`。カテゴリ別集計は`category_statistics`を使い、カテゴリ所属分として明示的に集計する。
 - `watch_record_costs`は概要額と支払明細合計を別列で返す。ビューは`security_invoker=true`で、基表RLSを呼び出し元に適用する。
 
 ## RLS・認可
 
-全テーブルでRLSを有効化しています。個人テーブルは`owner_id = auth.uid()`、子テーブルは親の所有者確認も要求します。INSERT/UPDATEは`current_user_is_authorized()`も要求するため、認証済みというだけでは書き込めません。UPDATEの`WITH CHECK`により所有者を別UUIDへ変更できません。匿名ロールにはテーブル権限を付与していません。
+全テーブルでRLSを有効化しています。個人テーブルは`owner_id = auth.uid()`と`current_user_is_authorized()`、子テーブルは親の所有者確認も要求します。SELECT/INSERT/UPDATE/DELETEの全操作で承認状態を確認するため、承認取り消し後は既存データも操作できません。UPDATEの`WITH CHECK`により所有者を別UUIDへ変更できません。匿名ロールにはスキーマ使用権限・テーブル権限・ビュー権限を付与していません。
 
-マスターは認証ユーザーがSELECTできますが、追加・変更・削除は承認済みユーザーだけです。承認テーブル自身は本人行だけSELECT可能で、一般ユーザーが自分を承認するINSERTポリシーはありません。
+マスターは承認済みユーザーだけがSELECTできます。追加・変更・削除も承認済みユーザーだけです。承認テーブル自身は本人行だけSELECT可能で、一般ユーザーが自分を承認するINSERTポリシーはありません。
 
-`set_updated_at`は通常のトリガー関数であり、SECURITY DEFINERを使用していません。`current_user_is_authorized`もSECURITY INVOKERです。
+`set_updated_at`とimport行の所有者検証は通常のトリガー関数であり、SECURITY DEFINERを使用していません。`current_user_is_authorized`もSECURITY INVOKERです。APIロールのスキーマ使用権限は、RLS・GRANT設定完了後にauthenticatedへだけ戻します。
+
+親子所有者は、matches/watch_records/tickets/payments/import_batchesの複合外部キーでDB制約として保証します。import_rowsの任意のtarget/duplicate matchは、削除時に所有者列をNULL化しないよう、通常関数のトリガーで同一所有者を検査します。RLSはさらに実行主体と親行の可視性を制限します。
 
 ## Excel移行
 

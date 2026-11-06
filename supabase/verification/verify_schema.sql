@@ -48,6 +48,40 @@ where table_schema = 'public'
   and table_name in ('watch_record_costs', 'dashboard_match_facts', 'category_statistics')
 order by table_name;
 
+select c.relname as view_name, c.reloptions
+from pg_class c
+join pg_namespace n on n.oid = c.relnamespace
+where n.nspname = 'public'
+  and c.relname in ('watch_record_costs', 'dashboard_match_facts', 'category_statistics')
+  and c.relkind = 'v'
+order by c.relname;
+
+select
+  tc.table_name,
+  tc.constraint_name,
+  kcu.column_name,
+  ccu.table_name as referenced_table,
+  ccu.column_name as referenced_column
+from information_schema.table_constraints tc
+join information_schema.key_column_usage kcu
+  on kcu.constraint_name = tc.constraint_name and kcu.table_schema = tc.table_schema
+join information_schema.constraint_column_usage ccu
+  on ccu.constraint_name = tc.constraint_name and ccu.table_schema = tc.table_schema
+where tc.table_schema = 'public'
+  and tc.constraint_type = 'FOREIGN KEY'
+  and tc.constraint_name in (
+    'authorized_users_default_cheer_team_fk',
+    'watch_records_match_owner_fk',
+    'watch_record_categories_owner_fk',
+    'seats_owner_fk',
+    'tickets_match_owner_fk',
+    'payments_match_owner_fk',
+    'payments_watch_record_owner_fk',
+    'payments_ticket_owner_fk',
+    'import_rows_batch_owner_fk'
+  )
+order by tc.table_name, tc.constraint_name, kcu.ordinal_position;
+
 select 'teams' as master_name, count(*)::bigint as row_count from public.teams
 union all select 'categories', count(*) from public.categories
 union all select 'stadiums', count(*) from public.stadiums

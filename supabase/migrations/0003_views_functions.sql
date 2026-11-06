@@ -39,14 +39,14 @@ select
   w.cheer_team_id,
   case
     when m.match_status = 'cancelled' or w.watch_status = 'cancelled' then 'cancelled'
+    when m.match_status = 'postponed' then 'postponed'
     when m.match_status <> 'finished' or m.home_score is null or m.away_score is null then 'scheduled'
     when w.cheer_team_id = m.home_team_id and m.home_score > m.away_score then 'win'
     when w.cheer_team_id = m.home_team_id and m.home_score < m.away_score then 'loss'
     when w.cheer_team_id = m.away_team_id and m.away_score > m.home_score then 'win'
     when w.cheer_team_id = m.away_team_id and m.away_score < m.home_score then 'loss'
-    when m.home_score > m.away_score then 'win'
-    when m.home_score < m.away_score then 'loss'
-    else 'draw'
+    when w.cheer_team_id = m.home_team_id or w.cheer_team_id = m.away_team_id then 'draw'
+    else 'unknown'
   end as watch_result,
   w.my_expense
 from public.matches m

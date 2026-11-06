@@ -4,6 +4,10 @@
 
 create extension if not exists pgcrypto;
 
+-- Keep the API roles out of public objects until the RLS migration is complete.
+-- The SQL Editor/service role remains able to create the schema.
+revoke usage on schema public from anon, authenticated;
+
 create table public.authorized_users (
   user_id uuid primary key references auth.users(id) on delete cascade,
   default_cheer_team_id text not null default 'dragons',
@@ -31,6 +35,9 @@ create table public.categories (
   display_order integer not null default 0,
   is_active boolean not null default true
 );
+alter table public.authorized_users
+  add constraint authorized_users_default_cheer_team_fk
+  foreign key (default_cheer_team_id) references public.teams(id) on delete restrict;
 
 create table public.stadiums (
   id text primary key,
@@ -95,6 +102,7 @@ create table public.matches (
   constraint matches_teams_distinct_ck check (home_team_id <> away_team_id),
   constraint matches_owner_legacy_unique unique (owner_id, legacy_id)
 );
+alter table public.matches add constraint matches_id_owner_unique unique (id, owner_id);
 
 create table public.watch_records (
   id uuid primary key default gen_random_uuid(),
@@ -115,6 +123,9 @@ create table public.watch_records (
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
+alter table public.watch_records add constraint watch_records_id_owner_unique unique (id, owner_id);
+alter table public.watch_records add constraint watch_records_match_owner_fk
+  foreign key (match_id, owner_id) references public.matches(id, owner_id) on delete cascade;
 
 create table public.watch_record_categories (
   owner_id uuid not null references auth.users(id) on delete cascade,
@@ -123,6 +134,8 @@ create table public.watch_record_categories (
   is_primary boolean not null default false,
   primary key (watch_record_id, category_id)
 );
+alter table public.watch_record_categories add constraint watch_record_categories_owner_fk
+  foreign key (watch_record_id, owner_id) references public.watch_records(id, owner_id) on delete cascade;
 
 create unique index watch_record_one_primary_category_idx
   on public.watch_record_categories (watch_record_id)
@@ -137,6 +150,8 @@ create table public.seats (
   seat_row text,
   seat_number text
 );
+alter table public.seats add constraint seats_owner_fk
+  foreign key (watch_record_id, owner_id) references public.watch_records(id, owner_id) on delete cascade;
 
 create table public.tickets (
   id uuid primary key default gen_random_uuid(),
@@ -162,6 +177,9 @@ create table public.tickets (
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
+alter table public.tickets add constraint tickets_id_owner_unique unique (id, owner_id);
+alter table public.tickets add constraint tickets_match_owner_fk
+  foreign key (match_id, owner_id) references public.matches(id, owner_id) on delete cascade;
 
 create table public.payments (
   id uuid primary key default gen_random_uuid(),
@@ -180,6 +198,12 @@ create table public.payments (
   updated_at timestamptz not null default now(),
   constraint payments_target_ck check (watch_record_id is not null or ticket_id is not null)
 );
+alter table public.payments add constraint payments_match_owner_fk
+  foreign key (match_id, owner_id) references public.matches(id, owner_id) on delete cascade;
+alter table public.payments add constraint payments_watch_record_owner_fk
+  foreign key (watch_record_id, owner_id) references public.watch_records(id, owner_id) on delete cascade;
+alter table public.payments add constraint payments_ticket_owner_fk
+  foreign key (ticket_id, owner_id) references public.tickets(id, owner_id) on delete cascade;
 
 create table public.match_inning_scores (
   match_id uuid not null references public.matches(id) on delete cascade,
@@ -243,6 +267,9 @@ create table public.import_rows (
   target_match_id uuid references public.matches(id) on delete set null,
   duplicate_of_match_id uuid references public.matches(id) on delete set null
 );
+alter table public.import_batches add constraint import_batches_id_owner_unique unique (id, owner_id);
+alter table public.import_rows add constraint import_rows_batch_owner_fk
+  foreign key (batch_id, owner_id) references public.import_batches(id, owner_id) on delete cascade;
 
 create index matches_owner_date_idx on public.matches (owner_id, match_date);
 create index matches_owner_status_idx on public.matches (owner_id, match_status);
@@ -265,6 +292,32 @@ begin
   return new;
 end;
 $$;
+
+create or replace function public.check_import_row_match_owners()
+returns trigger
+language plpgsql
+set search_path = public, pg_catalog
+as $$
+begin
+  if new.target_match_id is not null and not exists (
+    select 1 from public.matches m
+    where m.id = new.target_match_id and m.owner_id = new.owner_id
+  ) then
+    raise exception 'target_match_id must belong to owner_id';
+  end if;
+  if new.duplicate_of_match_id is not null and not exists (
+    select 1 from public.matches m
+    where m.id = new.duplicate_of_match_id and m.owner_id = new.owner_id
+  ) then
+    raise exception 'duplicate_of_match_id must belong to owner_id';
+  end if;
+  return new;
+end;
+$$;
+
+create trigger import_rows_check_match_owners
+before insert or update on public.import_rows
+for each row execute function public.check_import_row_match_owners();
 
 create trigger matches_set_updated_at before update on public.matches
 for each row execute function public.set_updated_at();
