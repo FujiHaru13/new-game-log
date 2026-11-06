@@ -13,6 +13,8 @@ import {
   getMatchResult,
   getStadiumDisplayName,
   getMatchTypeName,
+  formatSeatRow,
+  formatSeatNumber,
 } from '../../utils/baseballUtils';
 import { TEAMS, CATEGORIES, getTeam } from '../../data/teams';
 import { STADIUMS } from '../../data/stadiums';
@@ -490,7 +492,7 @@ export const RecordList: React.FC = () => {
                       <td className="py-3.5 px-3 whitespace-nowrap text-slate-600 dark:text-slate-400">
                         <span className="truncate max-w-[140px] block font-medium">
                           {r.seatInfo.seatTypeName || r.seatInfo.seatTypeId || '未指定'}
-                          {r.seatInfo.row && ` (${r.seatInfo.row})`}
+                          {r.seatInfo.row && ` (${formatSeatRow(r.seatInfo.row)}${r.seatInfo.seatNumber ? ` ${formatSeatNumber(r.seatInfo.seatNumber)}` : ''})`}
                         </span>
                       </td>
 
@@ -590,7 +592,8 @@ export const RecordList: React.FC = () => {
                 <div className="flex items-center justify-between pt-2 border-t border-slate-100 dark:border-slate-800 text-[11px] text-slate-500">
                   <span className="truncate max-w-[180px]">
                     {r.seatInfo.seatTypeName || '座席未指定'}
-                    {r.seatInfo.row && ` · ${r.seatInfo.row}`}
+                    {r.seatInfo.row && ` · ${formatSeatRow(r.seatInfo.row)}`}
+                    {r.seatInfo.seatNumber && ` ${formatSeatNumber(r.seatInfo.seatNumber)}`}
                   </span>
                   <span className="font-display font-bold text-slate-900 dark:text-slate-100 tabular-nums">
                     {formatCurrency(r.costInfo.myExpense)}

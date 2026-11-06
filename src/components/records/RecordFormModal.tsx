@@ -60,7 +60,8 @@ export const RecordFormModal: React.FC<RecordFormModalProps> = ({
   const [homeScore, setHomeScore] = useState<string>('4');
   const [awayScore, setAwayScore] = useState<string>('2');
   const [isScoreConfirmed, setIsScoreConfirmed] = useState(true);
-  const [matchDurationMinutes, setMatchDurationMinutes] = useState<string>('185');
+  const [durationHours, setDurationHours] = useState<string>('3');
+  const [durationMinutes, setDurationMinutes] = useState<string>('5');
 
   // Watch info
   const [watchStatus, setWatchStatus] = useState<WatchStatus>('watched');
@@ -74,8 +75,8 @@ export const RecordFormModal: React.FC<RecordFormModalProps> = ({
   const [seatTypeId, setSeatTypeId] = useState('infield_s');
   const [seatTypeName, setSeatTypeName] = useState('');
   const [area, setArea] = useState('1塁側');
-  const [row, setRow] = useState('15列');
-  const [seatNumber, setSeatNumber] = useState('32番');
+  const [row, setRow] = useState('15');
+  const [seatNumber, setSeatNumber] = useState('32');
 
   // Cost & Ticket info
   const [totalPrice, setTotalPrice] = useState<string>('4800');
@@ -128,7 +129,15 @@ export const RecordFormModal: React.FC<RecordFormModalProps> = ({
       setHomeScore(initialRecord.homeScore !== null ? String(initialRecord.homeScore) : '');
       setAwayScore(initialRecord.awayScore !== null ? String(initialRecord.awayScore) : '');
       setIsScoreConfirmed(initialRecord.isScoreConfirmed);
-      setMatchDurationMinutes(initialRecord.matchDurationMinutes ? String(initialRecord.matchDurationMinutes) : '');
+      if (initialRecord.matchDurationMinutes && initialRecord.matchDurationMinutes > 0) {
+        const h = Math.floor(initialRecord.matchDurationMinutes / 60);
+        const m = initialRecord.matchDurationMinutes % 60;
+        setDurationHours(h > 0 ? String(h) : '');
+        setDurationMinutes(m > 0 ? String(m) : '');
+      } else {
+        setDurationHours('');
+        setDurationMinutes('');
+      }
 
       setWatchStatus(initialRecord.watchStatus);
       setCheerTeamId(initialRecord.cheerTeamId);
@@ -140,8 +149,8 @@ export const RecordFormModal: React.FC<RecordFormModalProps> = ({
       setSeatTypeId(initialRecord.seatInfo.seatTypeId || '');
       setSeatTypeName(initialRecord.seatInfo.seatTypeName || '');
       setArea(initialRecord.seatInfo.area || '');
-      setRow(initialRecord.seatInfo.row || '');
-      setSeatNumber(initialRecord.seatInfo.seatNumber || '');
+      setRow((initialRecord.seatInfo.row || '').replace(/[^0-9]/g, ''));
+      setSeatNumber((initialRecord.seatInfo.seatNumber || '').replace(/[^0-9]/g, ''));
 
       setTotalPrice(initialRecord.costInfo.totalPrice !== null && initialRecord.costInfo.totalPrice !== undefined ? String(initialRecord.costInfo.totalPrice) : '');
       setMyExpense(initialRecord.costInfo.myExpense !== null && initialRecord.costInfo.myExpense !== undefined ? String(initialRecord.costInfo.myExpense) : '');
@@ -198,6 +207,10 @@ export const RecordFormModal: React.FC<RecordFormModalProps> = ({
       setTicketStatus('plan_to_buy');
       setTotalPrice('');
       setMyExpense('');
+      setDurationHours('');
+      setDurationMinutes('');
+      setRow('');
+      setSeatNumber('');
       setSplits([]);
       setAwayInnings(Array(9).fill(''));
       setHomeInnings(Array(9).fill(''));
@@ -278,7 +291,15 @@ export const RecordFormModal: React.FC<RecordFormModalProps> = ({
     const parsedTotalPrice = totalPrice.trim() !== '' ? Number(totalPrice) : null;
     const parsedMyExpense = myExpense.trim() !== '' ? Number(myExpense) : null;
     const parsedRefundAmount = refundAmount.trim() !== '' ? Number(refundAmount) : null;
-    const parsedDuration = matchDurationMinutes.trim() !== '' ? Number(matchDurationMinutes) : null;
+    
+    // Parse Duration (○時間○分から分換算)
+    let parsedDuration: number | null = null;
+    const h = durationHours.trim() !== '' ? parseInt(durationHours, 10) : 0;
+    const m = durationMinutes.trim() !== '' ? parseInt(durationMinutes, 10) : 0;
+    if (durationHours.trim() !== '' || durationMinutes.trim() !== '') {
+      parsedDuration = (isNaN(h) ? 0 : h) * 60 + (isNaN(m) ? 0 : m);
+      if (parsedDuration <= 0) parsedDuration = null;
+    }
 
     // Parse Innings
     const hasInnings = awayInnings.some(v => v.trim() !== '') || homeInnings.some(v => v.trim() !== '');
@@ -634,16 +655,55 @@ export const RecordFormModal: React.FC<RecordFormModalProps> = ({
                     <span>スコア確定済み</span>
                   </label>
 
-                  <div className="flex items-center gap-1.5">
-                    <span>試合時間(分):</span>
-                    <input
-                      type="number"
-                      placeholder="例: 185"
-                      value={matchDurationMinutes}
-                      onChange={(e) => setMatchDurationMinutes(e.target.value)}
-                      className="w-20 px-2 py-1 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-right"
-                    />
+                  <div className="flex items-center gap-2">
+                    <span className="font-semibold text-slate-700 dark:text-slate-300">試合時間:</span>
+                    <div className="flex items-center gap-1">
+                      <input
+                        type="number"
+                        min="0"
+                        max="24"
+                        placeholder="3"
+                        value={durationHours}
+                        onChange={(e) => setDurationHours(e.target.value.replace(/[^0-9]/g, ''))}
+                        className="w-12 px-1.5 py-1 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-center font-display font-bold text-xs"
+                      />
+                      <span className="font-bold text-slate-600 dark:text-slate-400">時間</span>
+                      <input
+                        type="number"
+                        min="0"
+                        max="59"
+                        placeholder="15"
+                        value={durationMinutes}
+                        onChange={(e) => setDurationMinutes(e.target.value.replace(/[^0-9]/g, ''))}
+                        className="w-12 px-1.5 py-1 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-center font-display font-bold text-xs"
+                      />
+                      <span className="font-bold text-slate-600 dark:text-slate-400">分</span>
+                    </div>
                   </div>
+                </div>
+
+                {/* Quick duration presets */}
+                <div className="flex items-center gap-1.5 pt-1 text-[11px] text-slate-500 overflow-x-auto">
+                  <span className="text-[10px] text-slate-400 shrink-0">目安:</span>
+                  {[
+                    { label: '2時間45分', h: '2', m: '45' },
+                    { label: '3時間00分', h: '3', m: '0' },
+                    { label: '3時間15分', h: '3', m: '15' },
+                    { label: '3時間30分', h: '3', m: '30' },
+                    { label: '3時間50分', h: '3', m: '50' },
+                  ].map(p => (
+                    <button
+                      key={p.label}
+                      type="button"
+                      onClick={() => {
+                        setDurationHours(p.h);
+                        setDurationMinutes(p.m);
+                      }}
+                      className="px-2 py-0.5 rounded-md bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 font-medium transition-colors shrink-0"
+                    >
+                      {p.label}
+                    </button>
+                  ))}
                 </div>
               </div>
             </div>
@@ -746,6 +806,19 @@ export const RecordFormModal: React.FC<RecordFormModalProps> = ({
                   onChange={(e) => setCompanions(e.target.value)}
                   className="w-full px-3 py-2 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100"
                 />
+                <div className="flex items-center gap-1.5 mt-1.5 overflow-x-auto">
+                  <span className="text-[10px] text-slate-400 shrink-0">候補:</span>
+                  {['単独 (1人)', '家族', '友人 (2名)', '会社の同僚'].map(preset => (
+                    <button
+                      key={preset}
+                      type="button"
+                      onClick={() => setCompanions(preset)}
+                      className="px-2 py-0.5 text-[10px] rounded-md bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 transition-colors shrink-0"
+                    >
+                      {preset}
+                    </button>
+                  ))}
+                </div>
               </div>
 
               {/* 観戦メモ */}
@@ -811,28 +884,44 @@ export const RecordFormModal: React.FC<RecordFormModalProps> = ({
 
                 <div>
                   <label className="block font-bold text-slate-700 dark:text-slate-300 mb-1">
-                    列
+                    列 (整数)
                   </label>
-                  <input
-                    type="text"
-                    placeholder="例: 15列"
-                    value={row}
-                    onChange={(e) => setRow(e.target.value)}
-                    className="w-full px-3 py-2 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100"
-                  />
+                  <div className="relative flex items-center">
+                    <input
+                      type="number"
+                      min="1"
+                      step="1"
+                      inputMode="numeric"
+                      placeholder="例: 15"
+                      value={row}
+                      onChange={(e) => setRow(e.target.value.replace(/[^0-9]/g, ''))}
+                      className="w-full px-3 py-2 pr-8 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 font-display font-bold text-sm"
+                    />
+                    <span className="absolute right-3 text-xs font-bold text-slate-400 pointer-events-none">
+                      列
+                    </span>
+                  </div>
                 </div>
 
                 <div>
                   <label className="block font-bold text-slate-700 dark:text-slate-300 mb-1">
-                    席番号
+                    席番号 (整数)
                   </label>
-                  <input
-                    type="text"
-                    placeholder="例: 45番"
-                    value={seatNumber}
-                    onChange={(e) => setSeatNumber(e.target.value)}
-                    className="w-full px-3 py-2 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100"
-                  />
+                  <div className="relative flex items-center">
+                    <input
+                      type="number"
+                      min="1"
+                      step="1"
+                      inputMode="numeric"
+                      placeholder="例: 45"
+                      value={seatNumber}
+                      onChange={(e) => setSeatNumber(e.target.value.replace(/[^0-9]/g, ''))}
+                      className="w-full px-3 py-2 pr-8 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 font-display font-bold text-sm"
+                    />
+                    <span className="absolute right-3 text-xs font-bold text-slate-400 pointer-events-none">
+                      番
+                    </span>
+                  </div>
                 </div>
               </div>
             </div>
@@ -884,6 +973,18 @@ export const RecordFormModal: React.FC<RecordFormModalProps> = ({
                     onChange={(e) => setPaymentDestination(e.target.value)}
                     className="w-full px-3 py-2 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100"
                   />
+                  <div className="flex items-center gap-1.5 mt-1.5 overflow-x-auto">
+                    {['ドラチケ', 'ローチケ', 'チケットぴあ', 'イープラス', '球場窓口', 'FC招待券'].map(v => (
+                      <button
+                        key={v}
+                        type="button"
+                        onClick={() => setPaymentDestination(v)}
+                        className="px-2 py-0.5 text-[10px] rounded-md bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 text-slate-700 dark:text-slate-300 shrink-0"
+                      >
+                        {v}
+                      </button>
+                    ))}
+                  </div>
                 </div>
 
                 <div>
@@ -1121,6 +1222,18 @@ export const RecordFormModal: React.FC<RecordFormModalProps> = ({
                     onChange={(e) => setHomeStarter(e.target.value)}
                     className="w-full px-3 py-2 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800"
                   />
+                  <div className="flex items-center gap-1 mt-1.5 overflow-x-auto text-[10px]">
+                    {['髙橋宏斗', '柳裕也', '小笠原慎之介', '涌井秀章', '大野雄大', '松木平優太', '根尾昂'].map(p => (
+                      <button
+                        key={p}
+                        type="button"
+                        onClick={() => setHomeStarter(p)}
+                        className="px-1.5 py-0.5 rounded bg-slate-100 dark:bg-slate-800 hover:bg-blue-100 text-slate-700 dark:text-slate-300 shrink-0"
+                      >
+                        {p}
+                      </button>
+                    ))}
+                  </div>
                 </div>
                 <div>
                   <label className="block font-bold text-slate-700 dark:text-slate-300 mb-1">

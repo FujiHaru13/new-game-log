@@ -13,6 +13,8 @@ import {
   getMatchResult,
   getOpponentTeam,
   getStadiumDisplayName,
+  formatSeatRow,
+  formatSeatNumber,
 } from '../../utils/baseballUtils';
 import { CATEGORIES, TEAMS, getTeam } from '../../data/teams';
 import { TeamLogo } from '../common/TeamLogo';
@@ -386,8 +388,8 @@ export const HomeDashboard: React.FC = () => {
                           <span className="font-medium truncate">
                             {match.seatInfo.seatTypeName || '座席指定'}
                             {match.seatInfo.area && ` · ${match.seatInfo.area}`}
-                            {match.seatInfo.row && ` · ${match.seatInfo.row}`}
-                            {match.seatInfo.seatNumber && ` ${match.seatInfo.seatNumber}`}
+                            {match.seatInfo.row && ` · ${formatSeatRow(match.seatInfo.row)}`}
+                            {match.seatInfo.seatNumber && ` ${formatSeatNumber(match.seatInfo.seatNumber)}`}
                           </span>
                         </div>
 

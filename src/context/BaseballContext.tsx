@@ -8,7 +8,7 @@ import { MatchRecord, CategoryId } from '../types/baseball';
 import { INITIAL_SEED_RECORDS } from '../data/seedData';
 import { getMatchResult } from '../utils/baseballUtils';
 
-const STORAGE_KEY = 'baseball_watch_log_data_v2';
+const STORAGE_KEY = 'baseball_watch_log_data_v3_excel';
 const THEME_KEY = 'baseball_watch_log_theme';
 const SUPABASE_CONFIG_KEY = 'baseball_watch_log_supabase_config';
 
@@ -58,13 +58,13 @@ interface BaseballContextType {
 const BaseballContext = createContext<BaseballContextType | undefined>(undefined);
 
 export const BaseballProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  // 記録データ
+  // 記録データ（観戦記録.xlsx の全259試合実データ）
   const [records, setRecords] = useState<MatchRecord[]>(() => {
     try {
       const stored = localStorage.getItem(STORAGE_KEY);
       if (stored) {
         const parsed = JSON.parse(stored);
-        if (Array.isArray(parsed) && parsed.length > 0) {
+        if (Array.isArray(parsed) && parsed.length >= 200) {
           return parsed;
         }
       }

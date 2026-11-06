@@ -14,6 +14,9 @@ import {
   getMatchResult,
   getStadiumDisplayName,
   getMatchTypeName,
+  formatSeatRow,
+  formatSeatNumber,
+  formatMatchDuration,
 } from '../../utils/baseballUtils';
 import { TeamLogo } from '../common/TeamLogo';
 import { ScoreboardBadge } from '../common/ScoreboardBadge';
@@ -126,7 +129,7 @@ export const RecordDetail: React.FC<RecordDetailProps> = ({ record, onClose, onE
                   </span>
                 )}
                 {record.matchDurationMinutes && (
-                  <span>(試合時間: {Math.floor(record.matchDurationMinutes / 60)}時間{record.matchDurationMinutes % 60}分)</span>
+                  <span>(試合時間: {formatMatchDuration(record.matchDurationMinutes)})</span>
                 )}
               </div>
               <div className="flex items-center gap-2">
@@ -324,7 +327,7 @@ export const RecordDetail: React.FC<RecordDetailProps> = ({ record, onClose, onE
                 <div className="flex items-start justify-between py-2 border-b border-slate-100 dark:border-slate-800">
                   <span className="text-slate-500">エリア・列・番号</span>
                   <span className="font-semibold text-slate-800 dark:text-slate-200 text-right">
-                    {[record.seatInfo.area, record.seatInfo.row, record.seatInfo.seatNumber].filter(Boolean).join(' / ') || '座席未定'}
+                    {[record.seatInfo.area, formatSeatRow(record.seatInfo.row), formatSeatNumber(record.seatInfo.seatNumber)].filter(Boolean).join(' / ') || '座席未定'}
                   </span>
                 </div>
 
