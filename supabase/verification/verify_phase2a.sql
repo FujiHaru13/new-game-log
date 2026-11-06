@@ -1,4 +1,4 @@
--- Read-only Phase 2A verification. Run after 0007.
+-- Read-only Phase 2A verification. Run after 0007 and 0008.
 -- PASS means the catalog condition is true; these checks do not replace REST tests.
 
 with expected(name, present) as (
@@ -61,6 +61,10 @@ with f as (
 select
   case when f.oid is not null then 'PASS' else 'FAIL' end as function_result,
   case when f.oid is not null and not f.prosecdef then 'PASS' else 'FAIL' end as security_invoker_result,
+  case when f.oid is not null
+    and pg_get_functiondef(f.oid) like '%errcode = ''PT409''%'
+    and pg_get_functiondef(f.oid) not like '%errcode = ''40001''%'
+    then 'PASS' else 'FAIL' end as intentional_conflict_code_result,
   case when f.oid is not null and not exists (
     select 1 from aclexplode(coalesce(f.proacl, acldefault('f', f.proowner))) a
     where a.grantee = 0 and a.privilege_type = 'EXECUTE'

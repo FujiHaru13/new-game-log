@@ -34,6 +34,8 @@ begin;
 commit;
 ```
 
+Phase 2Aを適用済みの環境では、0007を再実行せず、[`0008_phase2_conflict_pt409.sql`](../supabase/migrations/0008_phase2_conflict_pt409.sql)だけを管理者経路で実行します。0008は`save_match_record(jsonb)`の明示的な競合通知だけを`PT409`へ変更し、実際の直列化失敗を変換する例外ハンドラは追加しません。実行後に[`verify_phase2a.sql`](../supabase/verification/verify_phase2a.sql)を実行し、関数定義、SECURITY INVOKER、`authenticated` EXECUTE、PUBLIC/anon拒否、RLS、`PT409`を確認します。SQL Editorで適用済みの履歴とSupabase CLIの履歴が異なる場合は、関数定義と適用日時を記録してから進めます。
+
 途中でエラーになった場合は同じセッションで`rollback;`を実行し、原因を直して新しいトランザクションとして最初から実行します。Supabase CLI等が外側のトランザクションを管理する場合は、CLIの管理に任せてSQLへ二重の`BEGIN`/`COMMIT`を追加しません。既存スキーマに対して再実行せず、破壊的な`DROP ... CASCADE`も使用しません。
 
 検証SQLは読み取り専用です。SQL Editorの管理者権限でのSELECTだけでは、anonや別AuthユーザーのRLS実動作は証明できません。

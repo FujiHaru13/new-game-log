@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { saveMatchRecordAtomic } from './src/lib/supabaseRecords';
+import { isAtomicSaveConflict, saveMatchRecordAtomic } from './src/lib/supabaseRecords';
 import type { MatchRecord } from './src/types/baseball';
 import type { SupabaseClient } from '@supabase/supabase-js';
 
@@ -32,6 +32,12 @@ const record: MatchRecord = {
   createdAt: '2026-11-06T00:00:00Z',
   updatedAt: '2026-11-06T00:00:00Z',
 };
+
+test('atomic save recognizes PT409 and HTTP 409 conflicts', () => {
+  assert.equal(isAtomicSaveConflict({ code: 'PT409' }), true);
+  assert.equal(isAtomicSaveConflict({ status: 409 }), true);
+  assert.equal(isAtomicSaveConflict({ code: 'PGRST', message: 'Conflict' }), false);
+});
 
 function mockClient(rpcResult: { data?: unknown; error?: { message: string } }): SupabaseClient & {
   calls: Array<{ table: string; method: string }>;

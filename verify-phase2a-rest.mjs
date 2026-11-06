@@ -58,8 +58,8 @@ export function isConcurrencyConflict(responseOrError) {
     .filter((value) => value !== undefined && value !== null)
     .join(' ')
     .toLowerCase();
-  return error.code === '40001'
-    || text.includes('40001')
+  return error.code === 'PT409'
+    || text.includes('PT409')
     || text.includes('match was modified by another session')
     || text.includes('serialization failure');
 }

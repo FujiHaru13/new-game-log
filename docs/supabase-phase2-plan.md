@@ -28,7 +28,7 @@ Phase 2では、現在の`MatchRecord`の詳細項目を正規化テーブルへ
 
 ## 原子的保存RPC案
 
-実装関数: `public.save_match_record(p_payload jsonb)`. Migration [`0007_phase2_atomic_save.sql`](../supabase/migrations/0007_phase2_atomic_save.sql) に定義します。
+実装関数: `public.save_match_record(p_payload jsonb)`. 初回定義はMigration [`0007_phase2_atomic_save.sql`](../supabase/migrations/0007_phase2_atomic_save.sql)、クラウド適用済み関数の競合通知コード修正は[`0008_phase2_conflict_pt409.sql`](../supabase/migrations/0008_phase2_conflict_pt409.sql)で行います。
 
 1. `auth.uid()`がNULLでないことを確認する。
 2. `current_user_is_authorized()`を確認する。
@@ -41,7 +41,7 @@ Phase 2では、現在の`MatchRecord`の詳細項目を正規化テーブルへ
 
 関数は`SECURITY INVOKER`、`search_path = public, pg_catalog`とし、`authenticated`だけにEXECUTEを付与します。`PUBLIC`と`anon`はEXECUTE不可です。`payload jsonb`はJSON演算子で型変換し、所有者はpayloadから受け取らず`auth.uid()`を使用します。`replace`オブジェクトがtrueの子集合だけを置換するため、未指定項目は保持され、明示的な空配列/nullは削除として扱えます。
 
-更新時は`match.expected_updated_at`を必須の競合検出値として送信します。DBの`updated_at`と一致しない場合は`40001`で全体をロールバックします。新規行にはこの値を要求せず、既存行の更新だけを保護します。`watch`を省略した既存試合は既存観戦記録を保持し、新規試合で省略した場合だけエラーにします。
+更新時は`match.expected_updated_at`を必須の競合検出値として送信します。DBの`updated_at`と一致しない場合はPostgRESTの再試行を誘発しない`PT409`で全体をロールバックします。新規行にはこの値を要求せず、既存行の更新だけを保護します。`watch`を省略した既存試合は既存観戦記録を保持し、新規試合で省略した場合だけエラーにします。
 
 nullableな値はJSONの`null`で表現し、空文字列は契約違反として拒否します。したがって未指定（JSONキーなし）、明示的`null`（NULL化）、空文字列（拒否）は区別されます。
 
@@ -61,11 +61,13 @@ nullableな値はJSONの`null`で表現し、空文字列は契約違反とし�
 6. 既存Phase 1データを読み込む後方互換テストを実施する。
 7. 隔離テストユーザー・隔離試合で原子性、RLS、再試行を検証する。
 
-## 0007適用前後の確認
+## 0007・0008適用前後の確認
 
 - 0001〜0006は再実行せず、既存データを変更しない。
-- 0007適用後に`verify_phase2a.sql`で関数、RLS、EXECUTE権限、`payment_splits`、`is_not_played`を確認する。
-- 検証後にのみ`VITE_SUPABASE_ATOMIC_SAVE=true`を設定して段階切替する。
+- 0007適用済みのクラウドでは0007を再実行せず、0008だけを管理者経路で適用する。0008は`CREATE OR REPLACE FUNCTION`で関数の権限・SECURITY INVOKER・引数・戻り値を維持する。
+- 0008適用後に`verify_phase2a.sql`で関数、RLS、EXECUTE権限、`payment_splits`、`is_not_played`、意図的競合コード`PT409`を確認する。
+- SQL Editorで適用済みのMigrationとCLIのローカル履歴が異なる場合は、適用日時・実行SQL・関数定義の差分を記録し、0008を重複適用しない。
+- 検証後にのみ`VITE_SUPABASE_ATOMIC_SAVE=true`を設定して段階切替する。現状は`false`を維持する。
 - RPC失敗時はアプリが成功扱いせず、既存の再読込・エラー表示で停止する。
 - 実PostgreSQL/Supabaseでのトランザクション・RLS受入は、隔離ユーザーと隔離試合で別途実施する。
 
@@ -81,3 +83,4 @@ RPC導入前はPostgREST複数リクエストのため完全な原子性があ�
 - 分割支払いの合計と親支払いが混同されない。
 - RPC失敗時に親子の一部だけが残らない。
 - 匿名、未承認、他人所有者がRPCを実行できない。
+- 楽観的競合は`PT409`またはHTTP 409として通知され、504/タイムアウトは成功扱いされない。

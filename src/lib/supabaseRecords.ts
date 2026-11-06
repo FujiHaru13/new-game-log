@@ -472,6 +472,17 @@ export const saveMatchRecord = async (
 const viteEnv = (import.meta as ImportMeta & { env?: Record<string, string> }).env;
 export const isAtomicSaveEnabled = viteEnv?.VITE_SUPABASE_ATOMIC_SAVE === 'true';
 
+export const isAtomicSaveConflict = (error: {
+  code?: string;
+  message?: string;
+  status?: number;
+} | null | undefined) => {
+  if (!error) return false;
+  return error.code === 'PT409'
+    || error.status === 409
+    || (error.message || '').toLowerCase().includes('match was modified by another session');
+};
+
 export const saveMatchRecordAtomic = async (
   client: SupabaseClient,
   ownerId: string,
@@ -483,6 +494,13 @@ export const saveMatchRecordAtomic = async (
     p_payload: atomicPayload(record, ownerId, options),
   });
   if (result.error) {
+    if (isAtomicSaveConflict({
+      code: result.error.code,
+      message: result.error.message,
+      status: result.status,
+    })) {
+      throw new Error('試合情報が別の画面で更新されたため保存できませんでした。最新データを再読み込みしてから再試行してください。');
+    }
     throw new Error(`原子的試合保存に失敗しました: ${result.error.message}`);
   }
   const response = result.data as { ok?: boolean; match_id?: string; watch_record_id?: string } | null;
