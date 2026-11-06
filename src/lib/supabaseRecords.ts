@@ -1,4 +1,4 @@
-import { MatchRecord, CategoryId, MatchStatus, MatchType, WatchStatus, TicketStatus, InningScore, PitcherInfo, MatchLink, SplitPayment } from '../types/baseball';
+import { MatchRecord, CategoryId, MatchStatus, MatchType, WatchStatus, TicketStatus, TicketManagement, InningScore, PitcherInfo, MatchLink, SplitPayment } from '../types/baseball';
 import { SupabaseClient } from '@supabase/supabase-js';
 
 type JsonRecord = Record<string, unknown>;
@@ -151,7 +151,7 @@ export const loadRecordTables = async (client: SupabaseClient, includePhase2 = f
     client.from('watch_records').select('*'),
     client.from('watch_record_categories').select('*'),
     client.from('seats').select('*'),
-    client.from('tickets').select('*'),
+    client.from('tickets').select('*').order('match_id').order('id'),
   ]);
   for (const result of [matches, watches, categories, seats, tickets]) {
     if (result.error) throw new Error(`試合データの読み込みに失敗しました: ${result.error.message}`);
@@ -185,12 +185,29 @@ export const loadRecordTables = async (client: SupabaseClient, includePhase2 = f
   };
 };
 
+const ticketManagement = (ticket: TicketRow | undefined): TicketManagement => ({
+  id: ticket?.id,
+  status: ticket?.status || 'release_waiting',
+  releaseDate: ticket?.release_date || undefined,
+  purchaseDate: ticket?.purchase_date || undefined,
+  issueDate: ticket?.issue_date || undefined,
+  paymentDeadline: ticket?.payment_deadline || undefined,
+  quantity: ticket?.quantity ?? undefined,
+  seatTypeName: ticket?.seat_type_name || undefined,
+  seatArea: ticket?.seat_area || undefined,
+  seatRow: ticket?.seat_row || undefined,
+  seatNumber: ticket?.seat_number || undefined,
+  vendor: ticket?.vendor || undefined,
+  ticketType: ticket?.ticket_type || undefined,
+  notes: ticket?.notes || undefined,
+});
+
 export const toMatchRecord = (
   match: MatchRow,
   watch: WatchRow | undefined,
   categories: CategoryRow[],
   seat: SeatRow | undefined,
-  ticket: TicketRow | undefined,
+  tickets: TicketRow[],
   details?: Phase2RecordTables,
 ): MatchRecord => {
   const recordCategories = categories.filter(row => row.watch_record_id === watch?.id);
@@ -262,22 +279,8 @@ export const toMatchRecord = (
       refundAmount: watch?.refund_amount,
       refundStatus: watch?.refund_status || 'none',
     },
-    ticketInfo: {
-      id: ticket?.id,
-      status: ticket?.status || 'release_waiting',
-      releaseDate: ticket?.release_date || undefined,
-      purchaseDate: ticket?.purchase_date || undefined,
-      issueDate: ticket?.issue_date || undefined,
-      paymentDeadline: ticket?.payment_deadline || undefined,
-      quantity: ticket?.quantity || undefined,
-      seatTypeName: ticket?.seat_type_name || undefined,
-      seatArea: ticket?.seat_area || undefined,
-      seatRow: ticket?.seat_row || undefined,
-      seatNumber: ticket?.seat_number || undefined,
-      vendor: ticket?.vendor || undefined,
-      ticketType: ticket?.ticket_type || undefined,
-      notes: ticket?.notes || undefined,
-    },
+    ticketInfo: ticketManagement([...tickets].sort((a, b) => a.id.localeCompare(b.id))[0]),
+    tickets: [...tickets].sort((a, b) => a.id.localeCompare(b.id)).map(ticketManagement),
     createdAt: match.created_at,
     updatedAt: match.updated_at,
   };
@@ -411,6 +414,13 @@ export const saveMatchRecord = async (
   isNew: boolean,
 ) => {
   await validateSeatType(client, record);
+  const existingTickets = await client.from('tickets').select('id').eq('match_id', record.id);
+  if (existingTickets.error) {
+    throw new Error(`チケット情報の確認に失敗しました: ${existingTickets.error.message}`);
+  }
+  if ((existingTickets.data || []).length > 1) {
+    throw new Error('同一試合に複数チケットがあるため、現在の保存経路では保存できません。');
+  }
   let matchWritten = false;
 
   try {

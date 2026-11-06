@@ -46,7 +46,7 @@ interface BaseballContextType {
   isDarkMode: boolean;
 
   // 操作
-  addRecord: (record: Omit<MatchRecord, 'id' | 'createdAt' | 'updatedAt'>) => Promise<MatchRecord>;
+  addRecord: (record: Omit<MatchRecord, 'id' | 'createdAt' | 'updatedAt' | 'tickets'>) => Promise<MatchRecord>;
   updateRecord: (record: MatchRecord) => Promise<void>;
   deleteRecord: (id: string) => Promise<void>;
   resetToDemoData: () => void;
@@ -196,7 +196,12 @@ export const BaseballProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     const tables = await loadRecordTables(connection.client, isAtomicSaveEnabled);
     const watches = new Map(tables.watches.map(row => [row.match_id, row]));
     const seats = new Map(tables.seats.map(row => [row.watch_record_id, row]));
-    const tickets = new Map(tables.tickets.map(row => [row.match_id, row]));
+      const tickets = new Map<string, typeof tables.tickets>();
+      for (const ticket of tables.tickets) {
+        const current = tickets.get(ticket.match_id) || [];
+        current.push(ticket);
+        tickets.set(ticket.match_id, current);
+      }
     setRecords(tables.matches.map(match => {
       const watch = watches.get(match.id);
       return toMatchRecord(
@@ -204,7 +209,7 @@ export const BaseballProvider: React.FC<{ children: React.ReactNode }> = ({ chil
         watch,
         tables.categories,
         watch ? seats.get(watch.id) : undefined,
-        tickets.get(match.id),
+        tickets.get(match.id) || [],
         isAtomicSaveEnabled ? {
           innings: tables.innings || [],
           totals: tables.totals || [],
@@ -348,13 +353,14 @@ export const BaseballProvider: React.FC<{ children: React.ReactNode }> = ({ chil
   }, [records]);
 
   // CRUD
-  const addRecord = async (data: Omit<MatchRecord, 'id' | 'createdAt' | 'updatedAt'>): Promise<MatchRecord> => {
+  const addRecord = async (data: Omit<MatchRecord, 'id' | 'createdAt' | 'updatedAt' | 'tickets'>): Promise<MatchRecord> => {
     const now = new Date().toISOString();
     const newRecord: MatchRecord = {
       ...data,
       id: crypto.randomUUID(),
       createdAt: now,
       updatedAt: now,
+      tickets: [data.ticketInfo],
     };
     if (connection && user) {
       let savedUpdatedAt = newRecord.updatedAt;

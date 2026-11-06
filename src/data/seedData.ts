@@ -6,7 +6,7 @@
 // 観戦記録.xlsx（実データ全259試合）から抽出されたマスターシードデータ
 import { MatchRecord } from '../types/baseball';
 
-export const INITIAL_SEED_RECORDS: MatchRecord[] = [
+const LEGACY_SEED_RECORDS: Omit<MatchRecord, 'tickets'>[] = [
   {
     "id": "excel_d1_2017-04-05_2",
     "date": "2017-04-05",
@@ -12791,3 +12791,8 @@ export const INITIAL_SEED_RECORDS: MatchRecord[] = [
     "updatedAt": "2026-11-05T16:55:22.059Z"
   }
 ];
+
+export const INITIAL_SEED_RECORDS: MatchRecord[] = LEGACY_SEED_RECORDS.map(record => ({
+  ...record,
+  tickets: [record.ticketInfo],
+}));

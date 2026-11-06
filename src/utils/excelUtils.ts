@@ -154,7 +154,7 @@ export async function parseExcelFile(file: File): Promise<{
   // Convert to JSON (header as row 1)
   const rawRows: Record<string, any>[] = XLSX.utils.sheet_to_json(worksheet, { defval: '' });
   const recognizedColumns = new Set<string>();
-  const parsedRecords: MatchRecord[] = [];
+  const parsedRecords: Omit<MatchRecord, 'tickets'>[] = [];
 
   rawRows.forEach((row, idx) => {
     // 必須に近いキーを探す（日付または対戦カード）
@@ -349,7 +349,7 @@ export async function parseExcelFile(file: File): Promise<{
       watchStatus = 'scheduled';
     }
 
-    const record: MatchRecord = {
+    const record: Omit<MatchRecord, 'tickets'> = {
       id: `imported_${Date.now()}_${idx}`,
       date: dateStr,
       time: timeStr,
@@ -407,7 +407,7 @@ export async function parseExcelFile(file: File): Promise<{
 
   return {
     sheetNames,
-    records: parsedRecords,
+    records: parsedRecords.map(record => ({ ...record, tickets: [record.ticketInfo] })),
     rawRowCount: rawRows.length,
     unrecognizedColumns: unrecognized,
   };

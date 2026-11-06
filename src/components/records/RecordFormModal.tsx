@@ -279,6 +279,12 @@ export const RecordFormModal: React.FC<RecordFormModalProps> = ({
     submitInProgress.current = true;
     setErrorMessage(null);
 
+    if ((initialRecord?.tickets.length || 0) > 1) {
+      setErrorMessage('複数のチケットが登録されているため、現在のフォームから安全に編集できません。');
+      submitInProgress.current = false;
+      return;
+    }
+
     // Validation 1: Home != Away
     if (homeTeamId === awayTeamId) {
       setErrorMessage('ホームチームとビジターチームには異なる球団を選択してください。');
@@ -336,7 +342,7 @@ export const RecordFormModal: React.FC<RecordFormModalProps> = ({
       .map(s => s.trim())
       .filter(s => s.length > 0);
 
-    const recordPayload: Omit<MatchRecord, 'id' | 'createdAt' | 'updatedAt'> = {
+    const recordPayload: Omit<MatchRecord, 'id' | 'createdAt' | 'updatedAt' | 'tickets'> = {
       date: isDateUnknown ? '' : date,
       time: time || undefined,
       isDateUnknown,
@@ -404,6 +410,7 @@ export const RecordFormModal: React.FC<RecordFormModalProps> = ({
           id: initialRecord.id,
           createdAt: initialRecord.createdAt,
           updatedAt: initialRecord.updatedAt,
+          tickets: initialRecord.tickets,
         });
       } else {
         await addRecord(recordPayload);
@@ -472,6 +479,12 @@ export const RecordFormModal: React.FC<RecordFormModalProps> = ({
           <div className="mx-6 mt-4 p-3 rounded-xl bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-800 text-rose-700 dark:text-rose-300 text-xs flex items-center gap-2">
             <AlertTriangle className="w-4 h-4 shrink-0" />
             <span>{errorMessage}</span>
+          </div>
+        )}
+        {initialRecord && initialRecord.tickets.length > 1 && (
+          <div className="mx-6 mt-4 p-3 rounded-xl bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800 text-amber-800 dark:text-amber-200 text-xs flex items-center gap-2">
+            <AlertTriangle className="w-4 h-4 shrink-0" />
+            <span>この試合にはチケットが複数あります。複数チケット編集に対応するまで、このフォームからの保存は無効です。</span>
           </div>
         )}
 

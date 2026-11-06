@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { isAtomicSaveConflict, saveMatchRecordAtomic } from './src/lib/supabaseRecords';
+import { isAtomicSaveConflict, saveMatchRecordAtomic, toMatchRecord } from './src/lib/supabaseRecords';
 import type { MatchRecord } from './src/types/baseball';
 import type { SupabaseClient } from '@supabase/supabase-js';
 
@@ -29,6 +29,7 @@ const record: MatchRecord = {
   seatInfo: {},
   costInfo: { splits: [{ id: 'split-1', title: 'Ticket', amount: 1000 }] },
   ticketInfo: { status: 'ticketed', quantity: 1, vendor: 'Vendor' },
+  tickets: [{ status: 'ticketed', quantity: 1, vendor: 'Vendor' }],
   createdAt: '2026-11-06T00:00:00Z',
   updatedAt: '2026-11-06T00:00:00Z',
 };
@@ -37,6 +38,36 @@ test('atomic save recognizes PT409 and HTTP 409 conflicts', () => {
   assert.equal(isAtomicSaveConflict({ code: 'PT409' }), true);
   assert.equal(isAtomicSaveConflict({ status: 409 }), true);
   assert.equal(isAtomicSaveConflict({ code: 'PGRST', message: 'Conflict' }), false);
+});
+
+test('record loading retains all tickets with stable IDs and order', () => {
+  const match = {
+    id: 'match-1',
+    match_date: '2026-11-06',
+    date_unknown: false,
+    start_time: null,
+    home_team_id: 'dragons',
+    away_team_id: 'giants',
+    stadium_id: null,
+    stadium_custom_name: null,
+    match_type: 'official',
+    match_status: 'finished',
+    home_score: 1,
+    away_score: 0,
+    score_confirmed: true,
+    duration_minutes: null,
+    events: null,
+    notes: null,
+    created_at: '2026-11-06T00:00:00Z',
+    updated_at: '2026-11-06T00:00:00Z',
+  } as any;
+  const record = toMatchRecord(match, undefined, [], undefined, [
+    { id: 'ticket-b', match_id: 'match-1', status: 'ticketed', quantity: 2 },
+    { id: 'ticket-a', match_id: 'match-1', status: 'purchased', quantity: 1 },
+  ] as any);
+  assert.deepEqual(record.tickets.map(ticket => ticket.id), ['ticket-a', 'ticket-b']);
+  assert.equal(record.ticketInfo.id, 'ticket-a');
+  assert.equal(record.tickets[1].quantity, 2);
 });
 
 test('atomic save returns the database updated_at after success', async () => {
@@ -173,6 +204,10 @@ test('ticket payload includes all mutable ticket fields', async () => {
       seatRow: '10',
       seatNumber: '12',
     },
+    tickets: [{
+      status: 'purchased' as const,
+      quantity: 1,
+    }],
   };
   await saveMatchRecordAtomic(client, '00000000-0000-0000-0000-000000000003', ticketRecord);
   const payload = JSON.parse(client.calls[0].table) as Record<string, any>;

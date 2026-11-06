@@ -136,6 +136,7 @@ export interface MatchRecord {
   watchMemo?: string;         // 観戦メモ・日記
   costInfo: CostInfo;
   ticketInfo: TicketManagement;
+  tickets: TicketManagement[];
 
   createdAt: string;
   updatedAt: string;
