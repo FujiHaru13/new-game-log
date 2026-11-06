@@ -357,15 +357,17 @@ export const BaseballProvider: React.FC<{ children: React.ReactNode }> = ({ chil
       updatedAt: now,
     };
     if (connection && user) {
+      let savedUpdatedAt = newRecord.updatedAt;
       try {
-        await saveMatchRecordWithPhase2(connection.client, user.id, newRecord, true);
+        const result = await saveMatchRecordWithPhase2(connection.client, user.id, newRecord, true);
+        if (isAtomicSaveEnabled && result?.updated_at) savedUpdatedAt = result.updated_at;
       } catch (error) {
         await loadRemoteData().catch(refreshError => {
           console.error('Failed to refresh records after save failure', refreshError);
         });
         throw error;
       }
-      setRecords(prev => [newRecord, ...prev]);
+      setRecords(prev => [{ ...newRecord, updatedAt: savedUpdatedAt }, ...prev]);
     } else {
       setRecords(prev => [newRecord, ...prev]);
     }
@@ -374,9 +376,11 @@ export const BaseballProvider: React.FC<{ children: React.ReactNode }> = ({ chil
 
   const updateRecord = async (updated: MatchRecord): Promise<void> => {
     const now = new Date().toISOString();
+    let savedUpdatedAt = now;
     if (connection && user) {
       try {
-        await saveMatchRecordWithPhase2(connection.client, user.id, { ...updated, updatedAt: now }, false);
+        const result = await saveMatchRecordWithPhase2(connection.client, user.id, updated, false);
+        if (isAtomicSaveEnabled && result?.updated_at) savedUpdatedAt = result.updated_at;
       } catch (error) {
         await loadRemoteData().catch(refreshError => {
           console.error('Failed to refresh records after update failure', refreshError);
@@ -384,7 +388,7 @@ export const BaseballProvider: React.FC<{ children: React.ReactNode }> = ({ chil
         throw error;
       }
     }
-    setRecords(prev => prev.map(r => (r.id === updated.id ? { ...updated, updatedAt: now } : r)));
+    setRecords(prev => prev.map(r => (r.id === updated.id ? { ...updated, updatedAt: savedUpdatedAt } : r)));
   };
 
   const deleteRecord = async (id: string): Promise<void> => {

@@ -39,7 +39,19 @@ test('atomic save recognizes PT409 and HTTP 409 conflicts', () => {
   assert.equal(isAtomicSaveConflict({ code: 'PGRST', message: 'Conflict' }), false);
 });
 
-function mockClient(rpcResult: { data?: unknown; error?: { message: string } }): SupabaseClient & {
+test('atomic save returns the database updated_at after success', async () => {
+  const client = mockClient(
+    { data: { ok: true, match_id: record.id, watch_record_id: '00000000-0000-0000-0000-000000000002' } },
+    { updatedAt: '2026-11-06T00:00:01.123456Z' },
+  );
+  const response = await saveMatchRecordAtomic(client, '00000000-0000-0000-0000-000000000003', record);
+  assert.equal(response.updated_at, '2026-11-06T00:00:01.123456Z');
+});
+
+function mockClient(
+  rpcResult: { data?: unknown; error?: { message: string } },
+  options: { ticketIds?: string[]; updatedAt?: string } = {},
+): SupabaseClient & {
   calls: Array<{ table: string; method: string }>;
 } {
   const calls: Array<{ table: string; method: string }> = [];
@@ -47,11 +59,21 @@ function mockClient(rpcResult: { data?: unknown; error?: { message: string } }):
     calls,
     from(table: string) {
       return {
-        select() {
+        select(columns?: string) {
           return {
             eq() {
               return {
+                data: table === 'tickets'
+                  ? (options.ticketIds || []).map(id => ({ id }))
+                  : { updated_at: options.updatedAt || record.updatedAt },
+                error: null,
                 maybeSingle: async () => ({ data: null, error: null }),
+                single: async () => ({
+                  data: columns === 'updated_at'
+                    ? { updated_at: options.updatedAt || record.updatedAt }
+                    : null,
+                  error: null,
+                }),
               };
             },
           };
@@ -123,6 +145,18 @@ test('atomic save surfaces RPC failure without fallback writes', async () => {
     /transaction failed/,
   );
   assert.equal(client.calls.filter(call => call.method === 'rpc').length, 1);
+});
+
+test('atomic save refuses to overwrite multiple existing tickets', async () => {
+  const client = mockClient(
+    { data: { ok: true, match_id: record.id, watch_record_id: '00000000-0000-0000-0000-000000000002' } },
+    { ticketIds: ['ticket-1', 'ticket-2'] },
+  );
+  await assert.rejects(
+    saveMatchRecordAtomic(client, '00000000-0000-0000-0000-000000000003', record),
+    /複数チケットがあるため/,
+  );
+  assert.equal(client.calls.length, 0);
 });
 
 test('ticket payload includes all mutable ticket fields', async () => {

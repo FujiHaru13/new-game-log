@@ -403,7 +403,7 @@ export const RecordFormModal: React.FC<RecordFormModalProps> = ({
           ...recordPayload,
           id: initialRecord.id,
           createdAt: initialRecord.createdAt,
-          updatedAt: new Date().toISOString(),
+          updatedAt: initialRecord.updatedAt,
         });
       } else {
         await addRecord(recordPayload);

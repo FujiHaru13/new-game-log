@@ -490,6 +490,16 @@ export const saveMatchRecordAtomic = async (
   options: AtomicSaveOptions = {},
 ) => {
   await validateSeatType(client, record);
+  const ticketRows = await client
+    .from('tickets')
+    .select('id')
+    .eq('match_id', record.id);
+  if (ticketRows.error) {
+    throw new Error(`既存チケットの確認に失敗しました: ${ticketRows.error.message}`);
+  }
+  if ((ticketRows.data || []).length > 1) {
+    throw new Error('同一試合に複数チケットがあるため、Atomic Saveでは保存できません。複数チケット対応後に再試行してください。');
+  }
   const result = await client.rpc('save_match_record', {
     p_payload: atomicPayload(record, ownerId, options),
   });
@@ -507,7 +517,15 @@ export const saveMatchRecordAtomic = async (
   if (!response?.ok || response.match_id !== record.id || !response.watch_record_id) {
     throw new Error('原子的試合保存の応答を検証できませんでした。データ状態を確認してください。');
   }
-  return response;
+  const updatedAtResult = await client
+    .from('matches')
+    .select('updated_at')
+    .eq('id', record.id)
+    .single();
+  if (updatedAtResult.error || !updatedAtResult.data?.updated_at) {
+    throw new Error(`保存後の更新日時取得に失敗しました: ${updatedAtResult.error?.message || 'updated_atがありません'}`);
+  }
+  return { ...response, updated_at: updatedAtResult.data.updated_at };
 };
 
 export const saveMatchRecordWithPhase2 = async (
@@ -517,10 +535,10 @@ export const saveMatchRecordWithPhase2 = async (
   isNew: boolean,
 ) => {
   if (isAtomicSaveEnabled) {
-    await saveMatchRecordAtomic(client, ownerId, record);
-    return;
+    return saveMatchRecordAtomic(client, ownerId, record);
   }
   await saveMatchRecord(client, ownerId, record, isNew);
+  return undefined;
 };
 
 export const deleteMatchRecord = async (client: SupabaseClient, ownerId: string, id: string) => {

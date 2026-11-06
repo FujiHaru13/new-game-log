@@ -69,6 +69,8 @@ nullableな値はJSONの`null`で表現し、空文字列は契約違反とし�
 - SQL Editorで適用済みのMigrationとCLIのローカル履歴が異なる場合は、適用日時・実行SQL・関数定義の差分を記録し、0008を重複適用しない。
 - 検証後にのみ`VITE_SUPABASE_ATOMIC_SAVE=true`を設定して段階切替する。現状は`false`を維持する。
 - RPC失敗時はアプリが成功扱いせず、既存の再読込・エラー表示で停止する。
+- Atomic Saveの編集では、取得済みの`matches.updated_at`を`expected_updated_at`として送信し、成功後にDBの最新`updated_at`を再取得する。競合時はフォームを閉じず、再読込を促すエラーを表示する。
+- 現行UIはチケットを1試合1件として復元するため、Atomic Saveは既存チケットが複数件ある試合を破壊的に上書きせず拒否する。
 - 実PostgreSQL/Supabaseでのトランザクション・RLS受入は、隔離ユーザーと隔離試合で別途実施する。
 
 ## 部分保存と再試行
