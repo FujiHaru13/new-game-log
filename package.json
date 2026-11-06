@@ -12,7 +12,8 @@
     "test": "npm run test:rls && npm run test:phase2a && npm run test:phase2a:rest",
     "preview": "vite preview",
     "clean": "rm -rf dist server.js",
-    "lint": "tsc --noEmit"
+    "lint": "tsc --noEmit",
+    "test:phase2b:db": "node --test supabase/verification/phase2b-0009/database.test.mjs"
   },
   "dependencies": {
     "@google/genai": "^2.4.0",
