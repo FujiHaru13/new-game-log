@@ -484,11 +484,12 @@ grant select on public.teams, public.categories, public.stadiums, public.seat_ty
 grant select on public.authorized_users to authenticated;
 grant select, insert, update, delete on public.teams, public.categories, public.stadiums, public.seat_types, public.stadium_seat_types to authenticated;
 grant select, insert, update, delete on public.matches, public.watch_records, public.watch_record_categories, public.seats, public.tickets, public.payments, public.match_inning_scores, public.match_team_totals, public.match_pitchers, public.match_events, public.match_links, public.import_batches, public.import_rows to authenticated;
-revoke all on function public.current_user_is_authorized() from public;
+revoke all on function public.current_user_is_authorized() from public, anon;
 grant execute on function public.current_user_is_authorized() to authenticated;
-revoke all on function public.set_updated_at() from public;
+revoke all on function public.set_updated_at() from public, anon;
 grant execute on function public.set_updated_at() to authenticated;
-revoke all on function public.check_import_row_match_owners() from public;
+revoke all on function public.check_import_row_match_owners() from public, anon;
+grant execute on function public.check_import_row_match_owners() to authenticated;
 
 -- ===== END SOURCE: supabase/migrations/0002_rls_policies.sql =====
 

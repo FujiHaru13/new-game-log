@@ -106,3 +106,21 @@ from information_schema.routine_privileges
 where specific_schema = 'public'
   and routine_name in ('current_user_is_authorized', 'set_updated_at', 'check_import_row_match_owners')
 order by routine_name, grantee, privilege_type;
+
+select
+  expected.function_name,
+  has_function_privilege('public', format('public.%I()', expected.function_name), 'EXECUTE') as public_execute,
+  has_function_privilege('anon', format('public.%I()', expected.function_name), 'EXECUTE') as anon_execute,
+  has_function_privilege('authenticated', format('public.%I()', expected.function_name), 'EXECUTE') as authenticated_execute,
+  p.prosecdef as security_definer
+from (
+  values
+    ('current_user_is_authorized'),
+    ('set_updated_at'),
+    ('check_import_row_match_owners')
+) as expected(function_name)
+join pg_proc p
+  on p.pronamespace = 'public'::regnamespace
+ and p.proname = expected.function_name
+ and p.proargtypes = ''::oidvector
+order by expected.function_name;
