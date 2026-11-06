@@ -79,6 +79,7 @@ SQL Editor管理者セッションではRLSを正しく再現できないため�
 - `new row violates row-level security`: Authセッションがない、または`authorized_users`に本人UUIDがない。`owner_id`を固定値にしない。
 - `permission denied for table`: anonキーで管理者SQLを実行している。マスター投入・承認はSQL Editor等の管理者経路で行う。
 - `violates foreign key constraint`: マスターのIDが未投入、または現行TSのIDとDBのIDが異なる。ID対応表を確認する。
+- `payments_*_match_owner_fk`違反: 支払いの`match_id`と、指定した観戦記録またはチケットの`match_id`が一致していない。支払い対象を同じ試合から選ぶ。
 - `score confirmation`のCHECK違反: 確定フラグを立てる前に両スコアを入力する。未入力はNULLのままにする。
 - ビューで行が見えない: `security_invoker`により基表RLSが適用されている。呼び出し元のAuth UIDと承認状態を確認する。
 - 同日登録が拒否される: このスキーマには日付UNIQUE制約はない。別のクライアント側重複チェックを確認する。

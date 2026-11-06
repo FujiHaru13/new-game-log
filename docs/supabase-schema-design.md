@@ -97,11 +97,11 @@ erDiagram
 
 全テーブルでRLSを有効化しています。個人テーブルは`owner_id = auth.uid()`と`current_user_is_authorized()`、子テーブルは親の所有者確認も要求します。SELECT/INSERT/UPDATE/DELETEの全操作で承認状態を確認するため、承認取り消し後は既存データも操作できません。UPDATEの`WITH CHECK`により所有者を別UUIDへ変更できません。匿名ロールにはスキーマ使用権限・テーブル権限・ビュー権限を付与していません。
 
-マスターは承認済みユーザーだけがSELECTできます。追加・変更・削除も承認済みユーザーだけです。承認テーブル自身は本人行だけSELECT可能で、一般ユーザーが自分を承認するINSERTポリシーはありません。
+マスターは承認済みユーザーだけがSELECTできます。現行の個人専用運用では、承認済みユーザーが共有マスターの追加・変更・削除も行える仕様です。将来複数利用者や管理者を分離する場合は、`authorized_users`に管理者ロールを追加し、マスター管理ポリシーを管理者ロール専用へ分離します。承認テーブル自身は本人行だけSELECT可能で、一般ユーザーが自分を承認するINSERTポリシーはありません。
 
 `set_updated_at`とimport行の所有者検証は通常のトリガー関数であり、SECURITY DEFINERを使用していません。`current_user_is_authorized`もSECURITY INVOKERです。APIロールのスキーマ使用権限は、RLS・GRANT設定完了後にauthenticatedへだけ戻します。
 
-親子所有者は、matches/watch_records/tickets/payments/import_batchesの複合外部キーでDB制約として保証します。import_rowsの任意のtarget/duplicate matchは、削除時に所有者列をNULL化しないよう、通常関数のトリガーで同一所有者を検査します。RLSはさらに実行主体と親行の可視性を制限します。
+親子所有者は、matches/watch_records/tickets/payments/import_batchesの複合外部キーでDB制約として保証します。paymentsは`(match_id, watch_record_id, owner_id)`または`(match_id, ticket_id, owner_id)`を参照し、支払いの試合と観戦記録・チケットの試合が必ず一致します。任意の参照側がNULLの場合は複合FKが不成立にならず、`payments_target_ck`が少なくとも一方の参照を要求します。import_rowsの任意のtarget/duplicate matchは、削除時に所有者列をNULL化しないよう、通常関数のトリガーで同一所有者を検査します。RLSはさらに実行主体と親行の可視性を制限します。
 
 ## Excel移行
 

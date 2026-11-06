@@ -120,6 +120,8 @@ create table public.watch_records (
   updated_at timestamptz not null default now()
 );
 alter table public.watch_records add constraint watch_records_id_owner_unique unique (id, owner_id);
+alter table public.watch_records add constraint watch_records_match_id_owner_unique
+  unique (match_id, id, owner_id);
 alter table public.watch_records add constraint watch_records_match_owner_fk
   foreign key (match_id, owner_id) references public.matches(id, owner_id) on delete cascade;
 
@@ -174,6 +176,8 @@ create table public.tickets (
   updated_at timestamptz not null default now()
 );
 alter table public.tickets add constraint tickets_id_owner_unique unique (id, owner_id);
+alter table public.tickets add constraint tickets_match_id_owner_unique
+  unique (match_id, id, owner_id);
 alter table public.tickets add constraint tickets_match_owner_fk
   foreign key (match_id, owner_id) references public.matches(id, owner_id) on delete cascade;
 
@@ -196,10 +200,12 @@ create table public.payments (
 );
 alter table public.payments add constraint payments_match_owner_fk
   foreign key (match_id, owner_id) references public.matches(id, owner_id) on delete cascade;
-alter table public.payments add constraint payments_watch_record_owner_fk
-  foreign key (watch_record_id, owner_id) references public.watch_records(id, owner_id) on delete cascade;
-alter table public.payments add constraint payments_ticket_owner_fk
-  foreign key (ticket_id, owner_id) references public.tickets(id, owner_id) on delete cascade;
+alter table public.payments add constraint payments_watch_record_match_owner_fk
+  foreign key (match_id, watch_record_id, owner_id)
+  references public.watch_records(match_id, id, owner_id) on delete cascade;
+alter table public.payments add constraint payments_ticket_match_owner_fk
+  foreign key (match_id, ticket_id, owner_id)
+  references public.tickets(match_id, id, owner_id) on delete cascade;
 
 create table public.match_inning_scores (
   match_id uuid not null references public.matches(id) on delete cascade,

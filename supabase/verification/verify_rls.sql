@@ -31,12 +31,6 @@ where r.rolname in ('anon', 'authenticated')
   and n.nspname = 'public'
 order by r.rolname;
 
-select grantee, table_schema, privilege_type
-from information_schema.role_schema_grants
-where table_schema = 'public'
-  and grantee in ('PUBLIC', 'anon', 'authenticated')
-order by grantee, privilege_type;
-
 select
   coalesce(array_to_string(n.nspacl, ','), '<default>') as public_schema_acl,
   exists (

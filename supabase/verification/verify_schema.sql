@@ -45,10 +45,10 @@ from pg_indexes
 where schemaname = 'public'
 order by tablename, indexname;
 
-select table_name, row_security
+select tablename, rowsecurity
 from pg_tables
 where schemaname = 'public'
-order by table_name;
+order by tablename;
 
 select routine_name, routine_type, security_type
 from information_schema.routines
@@ -99,8 +99,8 @@ where tc.table_schema = 'public'
     'seats_owner_fk',
     'tickets_match_owner_fk',
     'payments_match_owner_fk',
-    'payments_watch_record_owner_fk',
-    'payments_ticket_owner_fk',
+    'payments_watch_record_match_owner_fk',
+    'payments_ticket_match_owner_fk',
     'import_rows_batch_owner_fk'
   )
 order by tc.table_name, tc.constraint_name, kcu.ordinal_position;
@@ -113,8 +113,8 @@ select
 from pg_constraint c
 where c.conname in (
   'payments_match_owner_fk',
-  'payments_watch_record_owner_fk',
-  'payments_ticket_owner_fk'
+  'payments_watch_record_match_owner_fk',
+  'payments_ticket_match_owner_fk'
 )
 order by c.conname;
 
