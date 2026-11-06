@@ -139,10 +139,28 @@ export const HomeDashboard: React.FC = () => {
   };
 
   return (
-    <div className="space-y-6 max-w-7xl mx-auto pb-12">
+    <div className="space-y-6 w-full min-w-0 mx-auto pb-12">
+      {/* Dashboard metrics use their own available width, not the viewport width.
+          This also works when the desktop sidebar is expanded. */}
+      <style>{`
+        .dashboard-metric-grid {
+          display: grid;
+          grid-template-columns: minmax(0, 1fr);
+          gap: 0.625rem;
+        }
+        @container dashboard-panel (min-width: 440px) {
+          .dashboard-metric-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+        }
+        @container dashboard-panel (min-width: 740px) {
+          .dashboard-metric-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+        }
+        @container dashboard-panel (min-width: 960px) {
+          .dashboard-metric-grid { grid-template-columns: repeat(6, minmax(0, 1fr)); }
+        }
+      `}</style>
       {/* Top Banner & Filter Control Area */}
-      <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-5 shadow-xs">
-        <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
+      <div style={{ container: 'dashboard-panel / inline-size' }} className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-4 sm:p-5 shadow-xs">
+        <div className="flex flex-col min-[1150px]:flex-row min-[1150px]:items-center justify-between gap-3">
           <div>
             <div className="flex items-center gap-2 text-xs font-semibold text-blue-700 dark:text-blue-400">
               <span>{selectedYear === 'all' ? '通算全期間' : `${selectedYear}シーズン`}</span>
@@ -159,7 +177,7 @@ export const HomeDashboard: React.FC = () => {
           </div>
 
           {/* Interactive Category Segmented Tabs */}
-          <div className="flex items-center gap-1.5 p-1 bg-slate-100 dark:bg-slate-800 rounded-xl overflow-x-auto text-xs">
+          <div className="flex max-w-full min-w-0 items-center gap-1.5 p-1 bg-slate-100 dark:bg-slate-800 rounded-xl overflow-x-auto text-xs self-start min-[1150px]:self-auto">
             <button
               onClick={() => setSelectedCategory('all')}
               className={`px-3 py-1.5 font-bold rounded-lg transition-all whitespace-nowrap ${
@@ -187,90 +205,93 @@ export const HomeDashboard: React.FC = () => {
         </div>
 
         {/* Core Scoreboard Metric Grid */}
-        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3 sm:gap-4 mt-6 pt-6 border-t border-slate-100 dark:border-slate-800">
+        <div className="dashboard-metric-grid mt-4 pt-4 border-t border-slate-100 dark:border-slate-800">
           {/* 1. 観戦試合数 */}
-          <div className="bg-slate-50 dark:bg-slate-950/60 border border-slate-200/80 dark:border-slate-800/80 rounded-xl p-3.5">
+          <div className="min-w-0 bg-slate-50 dark:bg-slate-950/60 border border-slate-200/80 dark:border-slate-800/80 rounded-xl px-3 py-3 sm:px-3.5 sm:py-3">
             <span className="text-xs font-semibold text-slate-500 dark:text-slate-400">観戦試合数</span>
-            <div className="flex items-baseline gap-1 mt-1">
-              <span className="text-2xl sm:text-3xl font-display font-bold text-slate-900 dark:text-slate-100 tabular-nums">
+            <div className="flex min-w-0 flex-wrap items-baseline gap-x-1 gap-y-0 mt-1">
+              <span className="text-2xl font-display font-bold text-slate-900 dark:text-slate-100 tabular-nums">
                 {stats.finishedMatches}
               </span>
               <span className="text-xs text-slate-500 font-medium">試合</span>
             </div>
-            <div className="text-[11px] text-slate-500 mt-1 tabular-nums">
+            <div className="text-[11px] text-slate-500 mt-0.5 tabular-nums">
               予定 {stats.scheduled} / 中止 {stats.cancelled}
             </div>
           </div>
 
           {/* 2. 観戦勝率 */}
-          <div className="bg-slate-50 dark:bg-slate-950/60 border border-slate-200/80 dark:border-slate-800/80 rounded-xl p-3.5">
+          <div className="min-w-0 bg-slate-50 dark:bg-slate-950/60 border border-slate-200/80 dark:border-slate-800/80 rounded-xl px-3 py-3 sm:px-3.5 sm:py-3">
             <span className="text-xs font-semibold text-slate-500 dark:text-slate-400">観戦勝率</span>
-            <div className="flex items-baseline gap-1 mt-1">
-              <span className="text-2xl sm:text-3xl font-display font-bold text-[#003882] dark:text-blue-400 tabular-nums">
+            <div className="flex min-w-0 flex-wrap items-baseline gap-x-1 gap-y-0 mt-1">
+              <span className="text-2xl font-display font-bold text-[#003882] dark:text-blue-400 tabular-nums">
                 {formatWinRate(stats.winRate)}
               </span>
             </div>
-            <div className="text-[11px] text-slate-500 mt-1">
+            <div className="text-[11px] text-slate-500 mt-0.5">
               勝÷(勝+敗)
             </div>
           </div>
 
           {/* 3. 勝敗分 内訳 */}
-          <div className="bg-slate-50 dark:bg-slate-950/60 border border-slate-200/80 dark:border-slate-800/80 rounded-xl p-3.5">
+          <div className="min-w-0 bg-slate-50 dark:bg-slate-950/60 border border-slate-200/80 dark:border-slate-800/80 rounded-xl px-3 py-3 sm:px-3.5 sm:py-3">
             <span className="text-xs font-semibold text-slate-500 dark:text-slate-400">通算勝敗</span>
-            <div className="flex items-baseline gap-1.5 mt-1 font-display font-bold text-xl sm:text-2xl tabular-nums">
-              <span className="text-blue-700 dark:text-blue-400">{stats.wins}勝</span>
-              <span className="text-slate-400 font-normal">/</span>
-              <span className="text-rose-600 dark:text-rose-400">{stats.losses}敗</span>
-              {stats.draws > 0 && (
-                <>
-                  <span className="text-slate-400 font-normal">/</span>
-                  <span className="text-amber-600 dark:text-amber-400">{stats.draws}分</span>
-                </>
-              )}
+            <div className="grid grid-cols-3 gap-1 mt-1 tabular-nums" aria-label={`勝${stats.wins}、敗${stats.losses}、引き分け${stats.draws}`}>
+              <div className="min-w-0 flex flex-col items-start">
+                <span className="font-display text-xl sm:text-2xl font-bold leading-none text-blue-700 dark:text-blue-400">{stats.wins}</span>
+                <span className="text-xs font-semibold text-blue-700 dark:text-blue-400">勝</span>
+              </div>
+              <div className="min-w-0 flex flex-col items-start border-l border-slate-200 dark:border-slate-700 pl-2">
+                <span className="font-display text-xl sm:text-2xl font-bold leading-none text-rose-600 dark:text-rose-400">{stats.losses}</span>
+                <span className="text-xs font-semibold text-rose-600 dark:text-rose-400">敗</span>
+              </div>
+              <div className="min-w-0 flex flex-col items-start border-l border-slate-200 dark:border-slate-700 pl-2">
+                <span className="font-display text-xl sm:text-2xl font-bold leading-none text-amber-600 dark:text-amber-400">{stats.draws}</span>
+                <span className="text-xs font-semibold text-amber-600 dark:text-amber-400">分</span>
+              </div>
             </div>
-            <div className="text-[11px] text-slate-500 mt-1">
+            <div className="text-[11px] text-slate-500 mt-0.5">
               勝敗差 {stats.wins - stats.losses > 0 ? `+${stats.wins - stats.losses}` : stats.wins - stats.losses}
             </div>
           </div>
 
           {/* 4. 平均得点 */}
-          <div className="bg-slate-50 dark:bg-slate-950/60 border border-slate-200/80 dark:border-slate-800/80 rounded-xl p-3.5">
+          <div className="min-w-0 bg-slate-50 dark:bg-slate-950/60 border border-slate-200/80 dark:border-slate-800/80 rounded-xl px-3 py-3 sm:px-3.5 sm:py-3">
             <span className="text-xs font-semibold text-slate-500 dark:text-slate-400">平均得点</span>
-            <div className="flex items-baseline gap-1 mt-1">
-              <span className="text-2xl sm:text-3xl font-display font-bold text-emerald-600 dark:text-emerald-400 tabular-nums">
+            <div className="flex min-w-0 flex-wrap items-baseline gap-x-1 gap-y-0 mt-1">
+              <span className="text-2xl font-display font-bold text-emerald-600 dark:text-emerald-400 tabular-nums">
                 {stats.avgRunsScored}
               </span>
               <span className="text-xs text-slate-500 font-medium">点/試合</span>
             </div>
-            <div className="text-[11px] text-slate-500 mt-1 tabular-nums">
+            <div className="text-[11px] text-slate-500 mt-0.5 tabular-nums">
               総得点: {stats.totalRunsScored}点
             </div>
           </div>
 
           {/* 5. 平均失点 */}
-          <div className="bg-slate-50 dark:bg-slate-950/60 border border-slate-200/80 dark:border-slate-800/80 rounded-xl p-3.5">
+          <div className="min-w-0 bg-slate-50 dark:bg-slate-950/60 border border-slate-200/80 dark:border-slate-800/80 rounded-xl px-3 py-3 sm:px-3.5 sm:py-3">
             <span className="text-xs font-semibold text-slate-500 dark:text-slate-400">平均失点</span>
-            <div className="flex items-baseline gap-1 mt-1">
-              <span className="text-2xl sm:text-3xl font-display font-bold text-slate-700 dark:text-slate-300 tabular-nums">
+            <div className="flex min-w-0 flex-wrap items-baseline gap-x-1 gap-y-0 mt-1">
+              <span className="text-2xl font-display font-bold text-slate-700 dark:text-slate-300 tabular-nums">
                 {stats.avgRunsConceded}
               </span>
               <span className="text-xs text-slate-500 font-medium">点/試合</span>
             </div>
-            <div className="text-[11px] text-slate-500 mt-1 tabular-nums">
+            <div className="text-[11px] text-slate-500 mt-0.5 tabular-nums">
               総失点: {stats.totalRunsConceded}点 (差 {stats.avgRunDiff > 0 ? `+${stats.avgRunDiff}` : stats.avgRunDiff})
             </div>
           </div>
 
           {/* 6. 自己負担観戦費用 */}
-          <div className="bg-slate-50 dark:bg-slate-950/60 border border-slate-200/80 dark:border-slate-800/80 rounded-xl p-3.5">
+          <div className="min-w-0 bg-slate-50 dark:bg-slate-950/60 border border-slate-200/80 dark:border-slate-800/80 rounded-xl px-3 py-3 sm:px-3.5 sm:py-3">
             <span className="text-xs font-semibold text-slate-500 dark:text-slate-400">自己負担費用</span>
-            <div className="flex items-baseline gap-1 mt-1">
-              <span className="text-xl sm:text-2xl font-display font-bold text-slate-900 dark:text-slate-100 tabular-nums">
+            <div className="flex min-w-0 flex-wrap items-baseline gap-x-1 gap-y-0 mt-1">
+              <span className="text-xl sm:text-2xl font-display font-bold text-slate-900 dark:text-slate-100 tabular-nums break-words">
                 {formatCurrency(stats.totalMyExpense)}
               </span>
             </div>
-            <div className="text-[11px] text-slate-500 mt-1 tabular-nums">
+            <div className="text-[11px] text-slate-500 mt-0.5 tabular-nums">
               平均 {formatCurrency(stats.avgMyExpense)}/回
             </div>
           </div>
@@ -424,7 +445,7 @@ export const HomeDashboard: React.FC = () => {
         {/* Right Column (1 span): Upcoming Schedule & Ticket Alerts */}
         <div className="space-y-6">
           {/* Upcoming Matches */}
-          <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-5 shadow-xs space-y-4">
+          <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-4 sm:p-5 shadow-xs space-y-4">
             <div className="flex items-center justify-between">
               <h3 className="text-base font-bold text-slate-900 dark:text-slate-100 flex items-center gap-2">
                 <Calendar className="w-4 h-4 text-blue-600" />
@@ -485,7 +506,7 @@ export const HomeDashboard: React.FC = () => {
           </div>
 
           {/* Ticket Alerts Card */}
-          <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-5 shadow-xs space-y-3">
+          <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-4 sm:p-5 shadow-xs space-y-3">
             <h3 className="text-base font-bold text-slate-900 dark:text-slate-100 flex items-center gap-2">
               <Ticket className="w-4 h-4 text-amber-600" />
               <span>チケット発売・手配予定</span>
@@ -522,7 +543,7 @@ export const HomeDashboard: React.FC = () => {
       {/* Opponent Breakdown & Yearly Trend Strip */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         {/* Opponent Breakdown Table */}
-        <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-5 shadow-xs">
+        <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-4 sm:p-5 shadow-xs">
           <div className="flex items-center justify-between mb-4">
             <h3 className="text-base font-bold text-slate-900 dark:text-slate-100 flex items-center gap-2">
               <TrendingUp className="w-4 h-4 text-blue-600" />
@@ -569,7 +590,7 @@ export const HomeDashboard: React.FC = () => {
         </div>
 
         {/* Yearly Trend Chart Strip */}
-        <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-5 shadow-xs">
+        <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-4 sm:p-5 shadow-xs">
           <div className="flex items-center justify-between mb-4">
             <h3 className="text-base font-bold text-slate-900 dark:text-slate-100 flex items-center gap-2">
               <Calendar className="w-4 h-4 text-blue-600" />
