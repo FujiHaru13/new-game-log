@@ -1,0 +1,65 @@
+# Supabase Phase 2 設計・実装計画
+
+## 方針
+
+Phase 2では、現在の`MatchRecord`の詳細項目を正規化テーブルへ保存・復元します。既存のPhase 1データを破壊せず、RPC追加を含むDB変更は別途レビュー・承認後に実施します。アプリ起動時の自動投入や初期構築SQLの再実行は行いません。
+
+## 対応表
+
+| TypeScript | Supabaseテーブル/列 | Phase 2方針 |
+|---|---|---|
+| `InningScore.home/away` | `match_inning_scores(match_id, inning_number, side, runs)` | 配列の空欄はNULL、`X`はホーム側の未実施表現として保存規則を決定 |
+| `InningScore.homeHits/awayHits`, `homeErrors/awayErrors` | `match_team_totals(match_id, side, hits, errors)` | home/away各1行をupsert |
+| `PitcherInfo` | `match_pitchers(match_id, side, role, player_name)` | starter/winning/losing/saveを行へ展開 |
+| `homeRuns` | `match_events(event_type='home_run', player_name, description, side, event_order)` | 本塁打ごとにイベント行 |
+| `events` | `match.events`または`match_events(event_type='other')` | 既存の概要テキストと詳細イベントを混同しない保存規則を決定 |
+| `links` | `match_links(match_id, title, url)` | 既存行を削除して再挿入する方式をRPC内で実行 |
+| `CostInfo.splits` | 現行スキーマに専用テーブルなし | `payment_splits`追加を別Migrationで設計。現行`payments`は明細1行として扱う |
+| `CostInfo` | `watch_records`および`payments` | 総額・自己負担額と支払明細を分離。既存列を上書きしない |
+| `TicketManagement` | `tickets` | `quantity`, `payment_deadline`, `vendor`, `purchase_amount`, `my_expense`, 返金列を追加マッピング |
+
+## 現状の未接続・注意点
+
+- Phase 1の`toMatchRecord`はイニング、投手、イベント詳細、リンク、分割支払いを復元していません。
+- Phase 1の保存処理もこれらを保存していません。
+- `TicketManagement.quantity`, `paymentDeadline`, `vendor`はフォーム・DB列が存在するため、Phase 2で明示的に接続します。
+- `payments`には現在のスキーマ上、支払い分割専用の親子テーブルがありません。既存の`payments`を分割明細として誤用せず、専用テーブルを追加する必要があります。
+- `match_inning_scores.runs`はNULLを許容するため、未入力と0を維持できます。`X`の保存表現はDB変更前に確定します。
+
+## 原子的保存RPC案
+
+関数名案: `public.save_match_record_v2(payload jsonb)`.
+
+1. `auth.uid()`がNULLでないことを確認する。
+2. `current_user_is_authorized()`を確認する。
+3. payloadのowner_idを受け取らず、常に`auth.uid()`を所有者として使用する。
+4. `matches`をinsert/updateする。
+5. `watch_records`をinsert/updateする。
+6. カテゴリ、座席、チケット、イニング、チーム合計、投手、イベント、リンク、支払い分割を同一トランザクションで置換する。
+7. すべての参照ID、`seat_type_id`、所有者、match_id整合性を検証する。
+8. 例外時は関数全体をロールバックし、成功時だけJSON結果を返す。
+
+関数は原則`SECURITY INVOKER`とし、`authenticated`のEXECUTEだけを付与します。`SECURITY DEFINER`が必要になった場合は、固定`search_path`、明示的な引数検証、PUBLIC/anon EXECUTE revoke、関数単位の受入テストを必須にします。`payload jsonb`を直接SQLへ連結せず、`jsonb_to_record`等で型検証します。
+
+## Phase 2実装順序
+
+1. 型とDB列の対応表を確定する。
+2. `payment_splits`の必要性、`X`の表現、イベントの重複規則をレビューする。
+3. RPCと必要なMigrationを追加する。
+4. `verify_schema.sql`、`verify_rls.sql`を更新する。
+5. RPCを使う読み書き変換層を実装する。
+6. 既存Phase 1データを読み込む後方互換テストを実施する。
+7. 隔離テストユーザー・隔離試合で原子性、RLS、再試行を検証する。
+
+## 部分保存と再試行
+
+RPC導入前はPostgREST複数リクエストのため完全な原子性がありません。Phase 1の補償削除・再読込・エラー表示を維持します。RPC導入後は同じ`match_id`を再送してもupsert/子行置換が決定的になるようにし、クライアントの二重送信防止と併用します。
+
+## 受入条件
+
+- 未入力スコアと0点が復元時も区別される。
+- 延長イニングを保存できる。
+- 投手・本塁打・イベント・リンクが重複せず復元される。
+- 分割支払いの合計と親支払いが混同されない。
+- RPC失敗時に親子の一部だけが残らない。
+- 匿名、未承認、他人所有者がRPCを実行できない。

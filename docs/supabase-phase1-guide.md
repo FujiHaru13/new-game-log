@@ -70,6 +70,27 @@ curl -i "$VITE_SUPABASE_URL/rest/v1/matches?select=id" \
 
 観戦状態の確認では、フォームで「観戦済み」「観戦予定」「観戦中止・未観戦」をそれぞれ選び、`watch_records.watch_status`がそれぞれ`watched`、`scheduled`、`cancelled`になることを確認します。新規フォームの初期値は意図的に`scheduled`です。
 
+### REST検証スクリプト
+
+ルートの[`verify-rls-rest.mjs`](../verify-rls-rest.mjs)は、既定では既存データを書き換えません。`RLS_EXPECTED_MATCH_ID`を設定すると、匿名・未承認ユーザーの`matches`、`watch_records`、`seats`の対象行SELECT、matchesのINSERT/UPDATE/DELETEを確認します。エラーコード・HTTPステータスが権限拒否を示す場合だけRLS拒否としてPASSにし、入力不備等はINCONCLUSIVEにします。
+
+承認済み本人のCRUDと隔離行の作成・削除を実施する場合だけ、次を明示設定します。
+
+```text
+RLS_ALLOW_MUTATIONS=1
+RLS_CONFIRM_CLEANUP=I_CONFIRM_CREATED_TEST_DATA_CLEANUP
+RLS_AUTHORIZED_EMAIL=...
+RLS_AUTHORIZED_PASSWORD=...
+RLS_TEST_EMAIL=...
+RLS_TEST_PASSWORD=...
+RLS_EXPECTED_MATCH_ID=...
+RLS_EXPECTED_WATCH_RECORD_ID=...
+```
+
+このモードでも、スクリプトが作成したUUIDの行だけを削除します。既存の検証試合や実在記録は削除しません。認証情報・アクセストークンは出力しません。認証情報不足、対象ID不足、クリーンアップ確認不足のテストはPASSにせず、INCONCLUSIVEまたはSKIPPEDとして扱います。承認取り消し試験は、管理者が専用テストユーザーを事前に用意し、手動で承認状態を変更してから同じRESTセッションで実施します。本人アカウントを無断で取り消しません。`RLS_EXPECTED_WATCH_RECORD_ID`は`seats` INSERT拒否の対象を特定するためだけに使います。
+
+RLS検証の詳細なPhase 2対応表とRPC案は[`supabase-phase2-plan.md`](./supabase-phase2-plan.md)に記載しています。
+
 ## 未実施・残存リスク
 
 - この作業環境ではSupabase URL、Publishable Key、テスト用未承認Authユーザーの認証情報が提供されていないため、実DBへのREST RLS受入テストは未実施です。
