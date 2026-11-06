@@ -90,6 +90,7 @@ declare
   v_away_value jsonb;
   v_player text;
   v_role text;
+  v_ticket_operation text := p_payload ->> 'ticket_operation';
 begin
   if p_payload is null or jsonb_typeof(p_payload) <> 'object' then
     raise exception using errcode = '22023', message = 'payload must be a JSON object';
@@ -124,6 +125,13 @@ begin
   if jsonb_typeof(v_watch) = 'object'
      and exists (select 1 from jsonb_each_text(v_watch) e where e.value = '') then
     raise exception using errcode = '22023', message = 'empty strings are not valid; use JSON null';
+  end if;
+  if v_ticket_operation is not null and v_ticket_operation <> 'delete' then
+    raise exception using errcode = '22023', message = 'ticket_operation must be delete';
+  end if;
+  if v_ticket_operation is not null
+     and not coalesce((v_replace ->> 'ticket')::boolean, false) then
+    raise exception using errcode = '22023', message = 'ticket_operation requires replace.ticket=true';
   end if;
 
   v_match_id := (v_match ->> 'id')::uuid;
@@ -256,10 +264,27 @@ begin
 
   if coalesce((v_replace ->> 'ticket')::boolean, false) then
     v_value := p_payload -> 'ticket';
+    if v_ticket_operation = 'delete' then
+      if jsonb_typeof(v_value) <> 'object'
+         or jsonb_typeof(v_value -> 'id') = 'null'
+         or nullif(v_value ->> 'id', '') is null then
+        raise exception using errcode = '22023', message = 'ticket.id is required for deletion';
+      end if;
+      delete from public.tickets
+      where id = (v_value ->> 'id')::uuid
+        and match_id = v_match_id and owner_id = v_owner_id;
+      if not found then
+        raise exception using errcode = '42501', message = 'ticket does not belong to this match';
+      end if;
+    elsif v_ticket_operation is not null then
+      raise exception using errcode = '22023', message = 'unsupported ticket operation';
+    end if;
     if jsonb_typeof(v_value) = 'null' then
       raise exception using errcode = '22023', message = 'ticket must be an object; use ticket.id for explicit deletion';
+    elsif v_ticket_operation is null and jsonb_typeof(v_value) <> 'object' then
+      raise exception using errcode = '22023', message = 'ticket must be an object';
     end if;
-    if jsonb_typeof(v_value) = 'object' then
+    if v_ticket_operation is null and jsonb_typeof(v_value) = 'object' then
       select count(*) into v_ticket_count
       from public.tickets where match_id = v_match_id and owner_id = v_owner_id;
       if v_ticket_count = 1 then
@@ -296,24 +321,23 @@ begin
         );
       else
         update public.tickets set
-          status = v_value ->> 'status',
-          release_date = nullif(v_value ->> 'release_date', '')::date,
-          purchase_date = nullif(v_value ->> 'purchase_date', '')::date,
-          issue_date = nullif(v_value ->> 'issue_date', '')::date,
-          payment_deadline = nullif(v_value ->> 'payment_deadline', '')::date,
-          quantity = (v_value ->> 'quantity')::integer,
-          ticket_type = nullif(v_value ->> 'ticket_type', ''),
-          vendor = nullif(v_value ->> 'vendor', ''),
-          notes = nullif(v_value ->> 'notes', '')
+          status = case when v_value ? 'status' then v_value ->> 'status' else status end,
+          release_date = case when v_value ? 'release_date' then (v_value ->> 'release_date')::date else release_date end,
+          purchase_date = case when v_value ? 'purchase_date' then (v_value ->> 'purchase_date')::date else purchase_date end,
+          issue_date = case when v_value ? 'issue_date' then (v_value ->> 'issue_date')::date else issue_date end,
+          payment_deadline = case when v_value ? 'payment_deadline' then (v_value ->> 'payment_deadline')::date else payment_deadline end,
+          quantity = case when v_value ? 'quantity' then (v_value ->> 'quantity')::integer else quantity end,
+          seat_type_name = case when v_value ? 'seat_type_name' then v_value ->> 'seat_type_name' else seat_type_name end,
+          seat_area = case when v_value ? 'seat_area' then v_value ->> 'seat_area' else seat_area end,
+          seat_row = case when v_value ? 'seat_row' then v_value ->> 'seat_row' else seat_row end,
+          seat_number = case when v_value ? 'seat_number' then v_value ->> 'seat_number' else seat_number end,
+          ticket_type = case when v_value ? 'ticket_type' then v_value ->> 'ticket_type' else ticket_type end,
+          vendor = case when v_value ? 'vendor' then v_value ->> 'vendor' else vendor end,
+          notes = case when v_value ? 'notes' then v_value ->> 'notes' else notes end
         where id = v_ticket_id and owner_id = v_owner_id;
       end if;
-    elsif p_payload ? 'ticket' then
-      if nullif(p_payload #>> '{ticket,id}', '') is null then
-        raise exception using errcode = '22023', message = 'ticket.id is required for explicit ticket deletion';
-      end if;
-      delete from public.tickets
-      where id = (p_payload #>> '{ticket,id}')::uuid
-        and match_id = v_match_id and owner_id = v_owner_id;
+    elsif p_payload ? 'ticket' and v_ticket_operation is null then
+      raise exception using errcode = '22023', message = 'use ticket_operation=delete for explicit ticket deletion';
     end if;
   end if;
 

@@ -118,3 +118,57 @@ test('atomic save surfaces RPC failure without fallback writes', async () => {
   );
   assert.equal(client.calls.filter(call => call.method === 'rpc').length, 1);
 });
+
+test('ticket payload includes all mutable ticket fields', async () => {
+  const client = mockClient({
+    data: { ok: true, match_id: record.id, watch_record_id: '00000000-0000-0000-0000-000000000002' },
+  });
+  const ticketRecord = {
+    ...record,
+    ticketInfo: {
+      ...record.ticketInfo,
+      id: '00000000-0000-0000-0000-000000000010',
+      seatTypeName: '内野',
+      seatArea: 'A',
+      seatRow: '10',
+      seatNumber: '12',
+    },
+  };
+  await saveMatchRecordAtomic(client, '00000000-0000-0000-0000-000000000003', ticketRecord);
+  const payload = JSON.parse(client.calls[0].table) as Record<string, any>;
+  assert.equal(payload.ticket.id, ticketRecord.ticketInfo.id);
+  assert.equal(payload.ticket.seat_type_name, '内野');
+  assert.equal(payload.ticket.seat_area, 'A');
+  assert.equal(payload.ticket.seat_row, '10');
+  assert.equal(payload.ticket.seat_number, '12');
+});
+
+test('ticket deletion requires an ID and uses an explicit operation', async () => {
+  const client = mockClient({
+    data: { ok: true, match_id: record.id, watch_record_id: '00000000-0000-0000-0000-000000000002' },
+  });
+  const ticketRecord = {
+    ...record,
+    ticketInfo: { ...record.ticketInfo, id: '00000000-0000-0000-0000-000000000010' },
+  };
+  await saveMatchRecordAtomic(
+    client,
+    '00000000-0000-0000-0000-000000000003',
+    ticketRecord,
+    { ticketOperation: 'delete' },
+  );
+  const payload = JSON.parse(client.calls[0].table) as Record<string, any>;
+  assert.equal(payload.ticket_operation, 'delete');
+  assert.deepEqual(payload.ticket, { id: ticketRecord.ticketInfo.id, status: ticketRecord.ticketInfo.status, release_date: null, purchase_date: null, issue_date: null, payment_deadline: null, quantity: 1, seat_type_name: null, seat_area: null, seat_row: null, seat_number: null, ticket_type: null, vendor: 'Vendor', notes: null });
+});
+
+test('ticket deletion without an ID is rejected before the RPC call', async () => {
+  const client = mockClient({
+    data: { ok: true, match_id: record.id, watch_record_id: '00000000-0000-0000-0000-000000000002' },
+  });
+  await assert.rejects(
+    saveMatchRecordAtomic(client, '00000000-0000-0000-0000-000000000003', record, { ticketOperation: 'delete' }),
+    /チケット削除には対象チケットIDが必要です/,
+  );
+  assert.equal(client.calls.length, 0);
+});

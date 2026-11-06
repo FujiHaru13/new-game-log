@@ -74,6 +74,10 @@ interface TicketRow extends JsonRecord {
   notes: string | null;
   payment_deadline: string | null;
   quantity: number | null;
+  seat_type_name: string | null;
+  seat_area: string | null;
+  seat_row: string | null;
+  seat_number: string | null;
   vendor: string | null;
   purchase_amount: number | null;
   my_expense: number | null;
@@ -266,6 +270,10 @@ export const toMatchRecord = (
       issueDate: ticket?.issue_date || undefined,
       paymentDeadline: ticket?.payment_deadline || undefined,
       quantity: ticket?.quantity || undefined,
+      seatTypeName: ticket?.seat_type_name || undefined,
+      seatArea: ticket?.seat_area || undefined,
+      seatRow: ticket?.seat_row || undefined,
+      seatNumber: ticket?.seat_number || undefined,
       vendor: ticket?.vendor || undefined,
       ticketType: ticket?.ticket_type || undefined,
       notes: ticket?.notes || undefined,
@@ -328,10 +336,14 @@ const ticketPayload = (record: MatchRecord, ownerId: string) => ({
 
 export interface AtomicSaveOptions {
   replaceDetails?: boolean;
+  ticketOperation?: 'delete';
 }
 
 const atomicPayload = (record: MatchRecord, ownerId: string, options: AtomicSaveOptions) => {
   const replaceDetails = options.replaceDetails ?? true;
+  if (options.ticketOperation === 'delete' && !record.ticketInfo.id) {
+    throw new Error('チケット削除には対象チケットIDが必要です');
+  }
   return {
     match: { ...matchPayload(record, ownerId), expected_updated_at: record.updatedAt },
     watch: watchPayload(record, ownerId),
@@ -351,6 +363,10 @@ const atomicPayload = (record: MatchRecord, ownerId: string, options: AtomicSave
       issue_date: record.ticketInfo.issueDate || null,
       payment_deadline: record.ticketInfo.paymentDeadline || null,
       quantity: record.ticketInfo.quantity ?? null,
+      seat_type_name: record.ticketInfo.seatTypeName || null,
+      seat_area: record.ticketInfo.seatArea || null,
+      seat_row: record.ticketInfo.seatRow || null,
+      seat_number: record.ticketInfo.seatNumber || null,
       ticket_type: record.ticketInfo.ticketType || null,
       vendor: record.ticketInfo.vendor || null,
       notes: record.ticketInfo.notes || null,
@@ -371,6 +387,7 @@ const atomicPayload = (record: MatchRecord, ownerId: string, options: AtomicSave
       links: replaceDetails,
       splits: replaceDetails,
     },
+    ...(options.ticketOperation ? { ticket_operation: options.ticketOperation } : {}),
   };
 };
 

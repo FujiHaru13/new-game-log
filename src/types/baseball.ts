@@ -88,6 +88,10 @@ export interface TicketManagement {
   purchaseDate?: string;      // 購入日
   issueDate?: string;         // 発券日
   paymentDeadline?: string;   // 支払い期限
+  seatTypeName?: string;
+  seatArea?: string;
+  seatRow?: string;
+  seatNumber?: string;
   ticketType?: string;        // 電子チケット, 紙チケット, QRコード, FC招待券等
   quantity?: number;          // 枚数
   vendor?: string;            // ドラチケ, ぴあ, ローチケ, イープラス等
