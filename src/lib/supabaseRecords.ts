@@ -216,58 +216,82 @@ const ticketPayload = (record: MatchRecord, ownerId: string) => ({
   notes: record.ticketInfo.notes || null,
 });
 
+const validateSeatType = async (client: SupabaseClient, record: MatchRecord) => {
+  const seatTypeId = record.seatInfo.seatTypeId?.trim();
+  if (!seatTypeId) return;
+
+  const result = await client.from('seat_types').select('id').eq('id', seatTypeId).maybeSingle();
+  if (result.error) {
+    throw new Error(`座席種別マスターの確認に失敗しました: ${result.error.message}`);
+  }
+  if (!result.data) {
+    throw new Error(`座席種別「${seatTypeId}」はSupabaseのseat_typesに存在しません。マスター登録後に選択するか、自由入力を使用してください。`);
+  }
+};
+
 export const saveMatchRecord = async (
   client: SupabaseClient,
   ownerId: string,
   record: MatchRecord,
   isNew: boolean,
 ) => {
-  const matchResult = await client.from('matches').upsert(matchPayload(record, ownerId)).select().single();
-  if (matchResult.error) throw new Error(`試合情報の保存に失敗しました: ${matchResult.error.message}`);
+  await validateSeatType(client, record);
+  let matchWritten = false;
 
-  const watchResult = await client.from('watch_records').upsert(watchPayload(record, ownerId), { onConflict: 'match_id' });
-  if (watchResult.error) {
-    if (isNew) await client.from('matches').delete().eq('id', record.id).eq('owner_id', ownerId);
-    throw new Error(`観戦情報の保存に失敗しました。試合情報は${isNew ? 'ロールバックを試みました' : '更新済みです'}: ${watchResult.error.message}`);
-  }
+  try {
+    const matchResult = await client.from('matches').upsert(matchPayload(record, ownerId)).select().single();
+    if (matchResult.error) throw new Error(`試合情報の保存に失敗しました: ${matchResult.error.message}`);
+    matchWritten = true;
 
-  const watch = await client.from('watch_records').select('id').eq('match_id', record.id).single();
-  if (watch.error || !watch.data) throw new Error('観戦記録のID取得に失敗しました。保存状態を確認してください。');
-  const categoryDelete = await client.from('watch_record_categories').delete().eq('watch_record_id', watch.data.id);
-  if (categoryDelete.error) throw new Error(`カテゴリ更新に失敗しました。部分保存の可能性があります: ${categoryDelete.error.message}`);
-  const categoryRows = record.categories.map(category_id => ({
-    owner_id: ownerId,
-    watch_record_id: watch.data.id,
-    category_id,
-    is_primary: category_id === record.primaryCategory,
-  }));
-  if (categoryRows.length) {
-    const categoryInsert = await client.from('watch_record_categories').insert(categoryRows);
-    if (categoryInsert.error) throw new Error(`カテゴリ保存に失敗しました。部分保存の可能性があります: ${categoryInsert.error.message}`);
-  }
+    const watchResult = await client.from('watch_records').upsert(watchPayload(record, ownerId), { onConflict: 'match_id' });
+    if (watchResult.error) throw new Error(`観戦情報の保存に失敗しました: ${watchResult.error.message}`);
 
-  const seatDelete = await client.from('seats').delete().eq('watch_record_id', watch.data.id);
-  if (seatDelete.error) throw new Error(`座席情報の更新に失敗しました。部分保存の可能性があります: ${seatDelete.error.message}`);
-  const seat = record.seatInfo;
-  if (seat.seatTypeId || seat.seatTypeName || seat.area || seat.row || seat.seatNumber) {
-    const seatInsert = await client.from('seats').insert({
+    const watch = await client.from('watch_records').select('id').eq('match_id', record.id).single();
+    if (watch.error || !watch.data) throw new Error('観戦記録のID取得に失敗しました。保存状態を確認してください。');
+    const categoryDelete = await client.from('watch_record_categories').delete().eq('watch_record_id', watch.data.id);
+    if (categoryDelete.error) throw new Error(`カテゴリ更新に失敗しました。部分保存の可能性があります: ${categoryDelete.error.message}`);
+    const categoryRows = record.categories.map(category_id => ({
       owner_id: ownerId,
       watch_record_id: watch.data.id,
-      seat_type_id: seat.seatTypeId || null,
-      custom_seat_type_name: seat.seatTypeName || null,
-      area: seat.area || null,
-      seat_row: seat.row || null,
-      seat_number: seat.seatNumber || null,
-    });
-    if (seatInsert.error) throw new Error(`座席保存に失敗しました。部分保存の可能性があります: ${seatInsert.error.message}`);
-  }
+      category_id,
+      is_primary: category_id === record.primaryCategory,
+    }));
+    if (categoryRows.length) {
+      const categoryInsert = await client.from('watch_record_categories').insert(categoryRows);
+      if (categoryInsert.error) throw new Error(`カテゴリ保存に失敗しました。部分保存の可能性があります: ${categoryInsert.error.message}`);
+    }
 
-  const ticketResult = await client.from('tickets').select('id').eq('match_id', record.id).maybeSingle();
-  if (ticketResult.error) throw new Error(`チケット情報の確認に失敗しました: ${ticketResult.error.message}`);
-  const ticketWrite = ticketResult.data
-    ? await client.from('tickets').update(ticketPayload(record, ownerId)).eq('id', ticketResult.data.id)
-    : await client.from('tickets').insert(ticketPayload(record, ownerId));
-  if (ticketWrite.error) throw new Error(`チケット保存に失敗しました。部分保存の可能性があります: ${ticketWrite.error.message}`);
+    const seatDelete = await client.from('seats').delete().eq('watch_record_id', watch.data.id);
+    if (seatDelete.error) throw new Error(`座席情報の更新に失敗しました。部分保存の可能性があります: ${seatDelete.error.message}`);
+    const seat = record.seatInfo;
+    if (seat.seatTypeId || seat.seatTypeName || seat.area || seat.row || seat.seatNumber) {
+      const seatInsert = await client.from('seats').insert({
+        owner_id: ownerId,
+        watch_record_id: watch.data.id,
+        seat_type_id: seat.seatTypeId?.trim() || null,
+        custom_seat_type_name: seat.seatTypeName?.trim() || null,
+        area: seat.area || null,
+        seat_row: seat.row || null,
+        seat_number: seat.seatNumber || null,
+      });
+      if (seatInsert.error) throw new Error(`座席保存に失敗しました。部分保存の可能性があります: ${seatInsert.error.message}`);
+    }
+
+    const ticketResult = await client.from('tickets').select('id').eq('match_id', record.id).maybeSingle();
+    if (ticketResult.error) throw new Error(`チケット情報の確認に失敗しました: ${ticketResult.error.message}`);
+    const ticketWrite = ticketResult.data
+      ? await client.from('tickets').update(ticketPayload(record, ownerId)).eq('id', ticketResult.data.id)
+      : await client.from('tickets').insert(ticketPayload(record, ownerId));
+    if (ticketWrite.error) throw new Error(`チケット保存に失敗しました。部分保存の可能性があります: ${ticketWrite.error.message}`);
+  } catch (error) {
+    if (isNew && matchWritten) {
+      const cleanup = await client.from('matches').delete().eq('id', record.id).eq('owner_id', ownerId);
+      if (cleanup.error) {
+        throw new Error(`${error instanceof Error ? error.message : '保存に失敗しました。'} 新規試合の自動ロールバックにも失敗しました（match_id: ${record.id}）。このIDを確認して手動回復してください。`);
+      }
+    }
+    throw error;
+  }
 };
 
 export const deleteMatchRecord = async (client: SupabaseClient, ownerId: string, id: string) => {

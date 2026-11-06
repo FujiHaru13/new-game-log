@@ -304,7 +304,14 @@ export const BaseballProvider: React.FC<{ children: React.ReactNode }> = ({ chil
       updatedAt: now,
     };
     if (connection && user) {
-      await saveMatchRecord(connection.client, user.id, newRecord, true);
+      try {
+        await saveMatchRecord(connection.client, user.id, newRecord, true);
+      } catch (error) {
+        await loadRemoteData().catch(refreshError => {
+          console.error('Failed to refresh records after save failure', refreshError);
+        });
+        throw error;
+      }
       setRecords(prev => [newRecord, ...prev]);
     } else {
       setRecords(prev => [newRecord, ...prev]);
@@ -315,7 +322,14 @@ export const BaseballProvider: React.FC<{ children: React.ReactNode }> = ({ chil
   const updateRecord = async (updated: MatchRecord): Promise<void> => {
     const now = new Date().toISOString();
     if (connection && user) {
-      await saveMatchRecord(connection.client, user.id, { ...updated, updatedAt: now }, false);
+      try {
+        await saveMatchRecord(connection.client, user.id, { ...updated, updatedAt: now }, false);
+      } catch (error) {
+        await loadRemoteData().catch(refreshError => {
+          console.error('Failed to refresh records after update failure', refreshError);
+        });
+        throw error;
+      }
     }
     setRecords(prev => prev.map(r => (r.id === updated.id ? { ...updated, updatedAt: now } : r)));
   };

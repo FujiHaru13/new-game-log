@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useBaseball } from '../../context/BaseballContext';
 import {
   MatchRecord,
@@ -45,6 +45,7 @@ export const RecordFormModal: React.FC<RecordFormModalProps> = ({
   // Active step in the form wizard (1: 試合, 2: 観戦, 3: 座席, 4: 費用, 5: 詳細スコア)
   const [activeStep, setActiveStep] = useState<number>(1);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const submitInProgress = useRef(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
   // Form State
@@ -72,7 +73,7 @@ export const RecordFormModal: React.FC<RecordFormModalProps> = ({
   const [watchMemo, setWatchMemo] = useState('');
 
   // Seat info
-  const [seatTypeId, setSeatTypeId] = useState('infield_s');
+  const [seatTypeId, setSeatTypeId] = useState('');
   const [seatTypeName, setSeatTypeName] = useState('');
   const [area, setArea] = useState('1塁側');
   const [row, setRow] = useState('15');
@@ -211,6 +212,8 @@ export const RecordFormModal: React.FC<RecordFormModalProps> = ({
       setDurationMinutes('');
       setRow('');
       setSeatNumber('');
+      setSeatTypeId('');
+      setSeatTypeName('');
       setSplits([]);
       setAwayInnings(Array(9).fill(''));
       setHomeInnings(Array(9).fill(''));
@@ -265,12 +268,15 @@ export const RecordFormModal: React.FC<RecordFormModalProps> = ({
   // Submit Handler
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (submitInProgress.current) return;
+    submitInProgress.current = true;
     setErrorMessage(null);
 
     // Validation 1: Home != Away
     if (homeTeamId === awayTeamId) {
       setErrorMessage('ホームチームとビジターチームには異なる球団を選択してください。');
       setActiveStep(1);
+      submitInProgress.current = false;
       return;
     }
 
@@ -280,10 +286,12 @@ export const RecordFormModal: React.FC<RecordFormModalProps> = ({
 
     if (parsedHomeScore !== null && isNaN(parsedHomeScore)) {
       setErrorMessage('ホーム得点は有効な数値を入力してください。');
+      submitInProgress.current = false;
       return;
     }
     if (parsedAwayScore !== null && isNaN(parsedAwayScore)) {
       setErrorMessage('ビジター得点は有効な数値を入力してください。');
+      submitInProgress.current = false;
       return;
     }
 
@@ -398,6 +406,7 @@ export const RecordFormModal: React.FC<RecordFormModalProps> = ({
       setErrorMessage(err?.message || '保存に失敗しました。');
     } finally {
       setIsSubmitting(false);
+      submitInProgress.current = false;
     }
   };
 
@@ -549,10 +558,8 @@ export const RecordFormModal: React.FC<RecordFormModalProps> = ({
                     value={stadiumId}
                     onChange={(e) => {
                       setStadiumId(e.target.value);
-                      const std = getStadium(e.target.value);
-                      if (std.seatTypes.length > 0) {
-                        setSeatTypeId(std.seatTypes[0].id);
-                      }
+                      setSeatTypeId('');
+                      setSeatTypeName('');
                     }}
                     className="w-full px-3 py-2 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 font-semibold"
                   >
@@ -853,8 +860,7 @@ export const RecordFormModal: React.FC<RecordFormModalProps> = ({
                   value={seatTypeId}
                   onChange={(e) => {
                     setSeatTypeId(e.target.value);
-                    const selected = currentStadium.seatTypes.find(st => st.id === e.target.value);
-                    if (selected) setSeatTypeName(selected.name);
+                    setSeatTypeName('');
                   }}
                   className="w-full px-3 py-2 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 font-semibold"
                 >
@@ -865,6 +871,16 @@ export const RecordFormModal: React.FC<RecordFormModalProps> = ({
                     </option>
                   ))}
                 </select>
+                <input
+                  type="text"
+                  placeholder="自由入力の席種（マスター外）"
+                  value={seatTypeName}
+                  onChange={(e) => {
+                    setSeatTypeName(e.target.value);
+                    if (e.target.value.trim()) setSeatTypeId('');
+                  }}
+                  className="mt-2 w-full px-3 py-2 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100"
+                />
               </div>
 
               {/* 構造化入力: エリア, 列, 席番号 */}

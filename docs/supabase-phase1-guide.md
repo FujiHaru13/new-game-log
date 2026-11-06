@@ -68,8 +68,42 @@ curl -i "$VITE_SUPABASE_URL/rest/v1/matches?select=id" \
 
 匿名、未承認、承認済み本人で`Authorization`を切り替えて確認します。テスト用レコードを作成する場合は、既存記録と区別できる内容にし、終了後は作成主体自身のレコードだけを削除します。
 
+観戦状態の確認では、フォームで「観戦済み」「観戦予定」「観戦中止・未観戦」をそれぞれ選び、`watch_records.watch_status`がそれぞれ`watched`、`scheduled`、`cancelled`になることを確認します。新規フォームの初期値は意図的に`scheduled`です。
+
 ## 未実施・残存リスク
 
 - この作業環境ではSupabase URL、Publishable Key、テスト用未承認Authユーザーの認証情報が提供されていないため、実DBへのREST RLS受入テストは未実施です。
 - 正規化子テーブルの一括保存はPostgRESTの単一トランザクションではありません。新規保存の親ロールバックと、更新時の部分保存エラー検知で保護していますが、完全な原子性にはRPC等のDB変更が必要です。
 - 既存UIの詳細スコア、投手、イベント、リンク、分割支払いはまだlocal UI状態のみです。
+
+## 座席種別マスターと保存
+
+`seats.seat_type_id`は`seat_types.id`への外部キーです。現在のDBで`seat_types`が空の場合、画面のローカル選択肢をそのまま送信せず、マスター選択は保存前に拒否します。未選択または自由入力の席種は`seat_type_id = NULL`、自由入力名は`custom_seat_type_name`へ保存します。必要な席種を実DBへ追加する場合は、名称・カテゴリ・球場対応を確認したseedまたは管理者操作を別途承認してから実施してください。
+
+## 既存の部分保存テストデータの確認と回復案
+
+以下は読み取り専用の確認SQLです。指定された2件以外を変更しません。
+
+```sql
+select
+  m.id as match_id,
+  w.id as watch_record_id,
+  (select count(*) from public.seats s where s.watch_record_id = w.id) as seat_count,
+  (select count(*) from public.watch_record_categories c where c.watch_record_id = w.id) as category_count,
+  (select count(*) from public.tickets t where t.match_id = m.id) as ticket_count,
+  (select count(*) from public.payments p where p.match_id = m.id) as payment_count
+from public.matches m
+left join public.watch_records w on w.match_id = m.id
+where m.id in (
+  'b1d18dfb-fa62-4d91-bc4e-33e7993b7362',
+  '6a460cbd-f3e3-499f-80d7-38ac632e564a'
+);
+```
+
+回復は、まずアプリで対象試合を編集し、観戦状態・座席を確認して保存します。削除が必要な場合も、バックアップと関連件数を確認した後、上記2つの`match_id`を明示した管理者用SQLを別途レビューしてから実行します。初期構築SQLの再実行、全件削除、RLS無効化は行いません。
+
+今回の保存失敗では、親削除を伴う補償処理を新規登録の全子保存段階へ拡張しました。補償削除に失敗した場合は`match_id`をエラーに含め、画面の再読み込みで部分保存行を取得してから編集・限定回復できるようにします。
+
+## 原子保存の次Phase案
+
+`save_match_record` RPCを追加し、`matches`、`watch_records`、カテゴリ、座席、チケットをPostgreSQL関数内の1トランザクションで保存します。関数は`SECURITY INVOKER`を基本とし、`auth.uid()`と承認状態を検証し、引数の`seat_type_id`が存在することを確認します。RPC追加はDBスキーマ変更を伴うため、別途SQLレビュー後に実施します。
