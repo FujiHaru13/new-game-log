@@ -4,7 +4,8 @@
  */
 
 import React, { createContext, useContext, useState, useEffect } from 'react';
-import { MatchRecord, CategoryId } from '../types/baseball';
+import { MatchRecord, CategoryId, Stadium, SeatTypeMaster } from '../types/baseball';
+import { STADIUMS } from '../data/stadiums';
 import { INITIAL_SEED_RECORDS } from '../data/seedData';
 import { getMatchResult } from '../utils/baseballUtils';
 import { getSupabaseConnection, saveSupabaseConnection, SupabaseConnection } from '../lib/supabase';
@@ -64,6 +65,7 @@ interface BaseballContextType {
   signIn: (email: string, password: string) => Promise<void>;
   signOut: () => Promise<void>;
   retryConnection: () => Promise<void>;
+  stadiums: Stadium[];
 }
 
 const BaseballContext = createContext<BaseballContextType | undefined>(undefined);
@@ -75,6 +77,7 @@ export const BaseballProvider: React.FC<{ children: React.ReactNode }> = ({ chil
   const [authError, setAuthError] = useState<string | null>(null);
   const [isAuthorized, setIsAuthorized] = useState(false);
   const [masterDataError, setMasterDataError] = useState<string | null>(null);
+  const [stadiums, setStadiums] = useState<Stadium[]>(() => getSupabaseConnection() ? [] : STADIUMS);
   // 記録データ（観戦記録.xlsx の全259試合実データ）
   const [records, setRecords] = useState<MatchRecord[]>(() => {
     if (getSupabaseConnection()) return [];
@@ -145,9 +148,51 @@ export const BaseballProvider: React.FC<{ children: React.ReactNode }> = ({ chil
       connection.client.from('teams').select('*').order('display_order'),
       connection.client.from('stadiums').select('*').order('display_order'),
       connection.client.from('categories').select('*').order('display_order'),
+      connection.client.from('seat_types').select('*').order('display_order'),
+      connection.client.from('stadium_seat_types').select('stadium_id, seat_type_id'),
     ]);
     const masterError = masters.find(result => result.error)?.error;
     if (masterError) throw new Error(`マスターデータの読み込みに失敗しました: ${masterError.message}`);
+    const stadiumRows = masters[1].data as Array<{
+      id: string;
+      name: string;
+      short_name: string;
+      location: string | null;
+      home_team_id: string | null;
+      is_dome: boolean;
+      display_order: number;
+    }>;
+    const seatRows = masters[3].data as Array<{
+      id: string;
+      name: string;
+      display_name: string;
+      category: SeatTypeMaster['category'];
+      price_range: string | null;
+      display_order: number;
+    }>;
+    const stadiumSeatRows = masters[4].data as Array<{ stadium_id: string; seat_type_id: string }>;
+    const seatMap = new Map(seatRows.map(row => [row.id, row]));
+    setStadiums(stadiumRows.map(row => ({
+      id: row.id,
+      name: row.name,
+      shortName: row.short_name,
+      location: row.location || '',
+      homeTeamId: row.home_team_id || undefined,
+      isDome: row.is_dome,
+      order: row.display_order,
+      seatTypes: stadiumSeatRows
+        .filter(link => link.stadium_id === row.id)
+        .map(link => seatMap.get(link.seat_type_id))
+        .filter((seat): seat is NonNullable<typeof seat> => Boolean(seat))
+        .map(seat => ({
+          id: seat.id,
+          name: seat.name,
+          displayName: seat.display_name,
+          category: seat.category,
+          priceRange: seat.price_range || undefined,
+          order: seat.display_order,
+        })),
+    })));
     const tables = await loadRecordTables(connection.client);
     const watches = new Map(tables.watches.map(row => [row.match_id, row]));
     const seats = new Map(tables.seats.map(row => [row.watch_record_id, row]));
@@ -488,6 +533,7 @@ export const BaseballProvider: React.FC<{ children: React.ReactNode }> = ({ chil
         signIn,
         signOut,
         retryConnection,
+        stadiums,
       }}
     >
       {children}

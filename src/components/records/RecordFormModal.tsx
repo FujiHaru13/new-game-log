@@ -15,7 +15,6 @@ import {
   TicketStatus,
 } from '../../types/baseball';
 import { TEAMS, CATEGORIES } from '../../data/teams';
-import { STADIUMS, getStadium } from '../../data/stadiums';
 import {
   X,
   Check,
@@ -40,7 +39,7 @@ export const RecordFormModal: React.FC<RecordFormModalProps> = ({
   onClose,
   initialRecord,
 }) => {
-  const { addRecord, updateRecord } = useBaseball();
+  const { addRecord, updateRecord, stadiums } = useBaseball();
 
   // Active step in the form wizard (1: 試合, 2: 観戦, 3: 座席, 4: 費用, 5: 詳細スコア)
   const [activeStep, setActiveStep] = useState<number>(1);
@@ -225,7 +224,15 @@ export const RecordFormModal: React.FC<RecordFormModalProps> = ({
   if (!isOpen) return null;
 
   // Selected Stadium seat types
-  const currentStadium = getStadium(stadiumId);
+  const currentStadium = stadiums.find(stadium => stadium.id === stadiumId) || {
+    id: stadiumId,
+    name: '球場マスター読み込み中',
+    shortName: '',
+    location: '',
+    isDome: false,
+    order: 0,
+    seatTypes: [],
+  };
 
   // Toggle Category selection (multi-select)
   const toggleCategory = (catId: CategoryId) => {
@@ -563,7 +570,7 @@ export const RecordFormModal: React.FC<RecordFormModalProps> = ({
                     }}
                     className="w-full px-3 py-2 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 font-semibold"
                   >
-                    {STADIUMS.map(stadium => (
+                    {stadiums.map(stadium => (
                       <option key={stadium.id} value={stadium.id}>
                         {stadium.name}
                       </option>
@@ -871,6 +878,13 @@ export const RecordFormModal: React.FC<RecordFormModalProps> = ({
                     </option>
                   ))}
                 </select>
+                {currentStadium.seatTypes.length === 0 && (
+                  <p className="mt-2 text-amber-700 dark:text-amber-300">
+                    この球場の席種マスターが未登録です。未選択のまま保存するか、下の自由入力を使用してください。管理者は
+                    <code className="mx-1">0006_seed_seat_types.sql</code>
+                    適用後に再読み込みしてください。
+                  </p>
+                )}
                 <input
                   type="text"
                   placeholder="自由入力の席種（マスター外）"

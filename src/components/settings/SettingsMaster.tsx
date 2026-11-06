@@ -6,7 +6,6 @@
 import React, { useState } from 'react';
 import { useBaseball } from '../../context/BaseballContext';
 import { TEAMS } from '../../data/teams';
-import { STADIUMS } from '../../data/stadiums';
 import { TeamLogo } from '../common/TeamLogo';
 import {
   Settings,
@@ -35,6 +34,7 @@ export const SettingsMaster: React.FC = () => {
     importRecords,
     supabaseConfig,
     updateSupabaseConfig,
+    stadiums,
   } = useBaseball();
 
   const [activeTab, setActiveTab] = useState<'backup' | 'master_teams' | 'master_stadiums' | 'supabase'>('backup');
@@ -418,7 +418,7 @@ export const SettingsMaster: React.FC = () => {
             </h3>
 
             <div className="space-y-4">
-              {STADIUMS.map(std => (
+              {stadiums.map(std => (
                 <div
                   key={std.id}
                   className="p-4 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-950/40 space-y-2 text-xs"

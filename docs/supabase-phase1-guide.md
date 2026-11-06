@@ -80,6 +80,10 @@ curl -i "$VITE_SUPABASE_URL/rest/v1/matches?select=id" \
 
 `seats.seat_type_id`は`seat_types.id`への外部キーです。現在のDBで`seat_types`が空の場合、画面のローカル選択肢をそのまま送信せず、マスター選択は保存前に拒否します。未選択または自由入力の席種は`seat_type_id = NULL`、自由入力名は`custom_seat_type_name`へ保存します。必要な席種を実DBへ追加する場合は、名称・カテゴリ・球場対応を確認したseedまたは管理者操作を別途承認してから実施してください。
 
+ローカル定義には53件の一意な席種IDがあります。既存DB向けの追加マイグレーション[`0006_seed_seat_types.sql`](../supabase/migrations/0006_seed_seat_types.sql)が、これらを`seat_types`へ登録し、球場別リンクを`stadium_seat_types`へ登録します。`dragons_ouen`を含め、アプリのローカルIDをDB IDとして統一しています。アプリ起動時はDBの席種と球場リンクだけをプルダウンに表示し、DB未登録のローカル席種を正式項目として表示しません。
+
+適用順序は、既存の初期構築済みDBに対して`0006_seed_seat_types.sql`を単独で適用し、その後[`verify_seat_types.sql`](../supabase/verification/verify_seat_types.sql)を読み取り専用で実行します。初期構築パッケージの再実行や、アプリ起動時の自動投入は行いません。`0006`は既存のseat_types行と内容が異なる場合に例外で停止します。
+
 ## 既存の部分保存テストデータの確認と回復案
 
 以下は読み取り専用の確認SQLです。指定された2件以外を変更しません。
