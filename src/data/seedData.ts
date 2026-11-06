@@ -3,6 +3,8 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+import { normalizeRecordTickets } from '../utils/ticketRecords';
+
 // 観戦記録.xlsx（実データ全259試合）から抽出されたマスターシードデータ
 import { MatchRecord } from '../types/baseball';
 
@@ -12792,7 +12794,4 @@ const LEGACY_SEED_RECORDS: Omit<MatchRecord, 'tickets'>[] = [
   }
 ];
 
-export const INITIAL_SEED_RECORDS: MatchRecord[] = LEGACY_SEED_RECORDS.map(record => ({
-  ...record,
-  tickets: [record.ticketInfo],
-}));
+export const INITIAL_SEED_RECORDS: MatchRecord[] = LEGACY_SEED_RECORDS.map(normalizeRecordTickets);

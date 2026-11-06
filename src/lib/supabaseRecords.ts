@@ -1,3 +1,4 @@
+import { normalizeRecordTickets } from '../utils/ticketRecords';
 import { MatchRecord, CategoryId, MatchStatus, MatchType, WatchStatus, TicketStatus, TicketManagement, InningScore, PitcherInfo, MatchLink, SplitPayment } from '../types/baseball';
 import { SupabaseClient } from '@supabase/supabase-js';
 
@@ -134,6 +135,14 @@ export interface Phase2RecordTables {
   splits: PaymentSplitRow[];
 }
 
+export class SavedRecordRefreshRequiredError extends Error {
+  constructor() {
+    super('保存は成功しましたが再取得が必要です。再保存せず最新データを再読み込みしてください。');
+  }
+}
+
+const pendingRefresh = new Set<string>();
+
 const asNullable = (value: string | undefined) => value || null;
 const asDate = (value: string | null) => value || '';
 
@@ -163,7 +172,10 @@ export const loadRecordTables = async (client: SupabaseClient, includePhase2 = f
     seats: (seats.data || []) as SeatRow[],
     tickets: (tickets.data || []) as TicketRow[],
   };
-  if (!includePhase2) return base;
+  if (!includePhase2) {
+    pendingRefresh.clear();
+    return base;
+  }
   const detailResults = await Promise.all([
     client.from('match_inning_scores').select('*'),
     client.from('match_team_totals').select('*'),
@@ -174,6 +186,7 @@ export const loadRecordTables = async (client: SupabaseClient, includePhase2 = f
   ]);
   const detailError = detailResults.find(result => result.error)?.error;
   if (detailError) throw new Error(`Phase 2詳細データの読み込みに失敗しました: ${detailError.message}`);
+  pendingRefresh.clear();
   return {
     ...base,
     innings: detailResults[0].data as InningRow[],
@@ -234,7 +247,7 @@ export const toMatchRecord = (
     losingPitcher: matchPitchers.find(row => row.role === 'losing')?.player_name,
     savePitcher: matchPitchers.find(row => row.role === 'save')?.player_name,
   } : undefined;
-  return {
+  return normalizeRecordTickets({
     id: match.id,
     date: asDate(match.match_date),
     time: match.start_time?.slice(0, 5),
@@ -283,7 +296,7 @@ export const toMatchRecord = (
     tickets: [...tickets].sort((a, b) => a.id.localeCompare(b.id)).map(ticketManagement),
     createdAt: match.created_at,
     updatedAt: match.updated_at,
-  };
+  });
 };
 
 const matchPayload = (record: MatchRecord, ownerId: string) => ({
@@ -383,7 +396,7 @@ const atomicPayload = (record: MatchRecord, ownerId: string, options: AtomicSave
     replace: {
       categories: replaceDetails,
       seat: replaceDetails,
-      ticket: replaceDetails,
+      ticket: replaceDetails && record.tickets.length > 0,
       innings: replaceDetails,
       pitchers: replaceDetails,
       events: replaceDetails,
@@ -413,14 +426,19 @@ export const saveMatchRecord = async (
   record: MatchRecord,
   isNew: boolean,
 ) => {
+  record = normalizeRecordTickets(record);
+  if (record.tickets.length > 1) throw new Error('複数チケットがあるため保存できません');
+  if (pendingRefresh.has(record.id)) throw new Error('前回の保存は成功しましたが再取得が必要です。最新データを再読み込みしてください。');
   await validateSeatType(client, record);
   const existingTickets = await client.from('tickets').select('id').eq('match_id', record.id);
   if (existingTickets.error) {
     throw new Error(`チケット情報の確認に失敗しました: ${existingTickets.error.message}`);
   }
+  if (record.tickets[0]?.id && record.tickets[0].id !== existingTickets.data?.[0]?.id) throw new Error('チケットIDがDBと一致しません');
   if ((existingTickets.data || []).length > 1) {
     throw new Error('同一試合に複数チケットがあるため、現在の保存経路では保存できません。');
   }
+  if (!record.tickets.length && existingTickets.data?.length) throw new Error('既存チケットの削除には明示的な削除操作が必要です');
   let matchWritten = false;
 
   try {
@@ -428,6 +446,7 @@ export const saveMatchRecord = async (
     if (matchResult.error) throw new Error(`試合情報の保存に失敗しました: ${matchResult.error.message}`);
     matchWritten = true;
 
+    const savedUpdatedAt = matchResult.data?.updated_at;
     const watchResult = await client.from('watch_records').upsert(watchPayload(record, ownerId), { onConflict: 'match_id' });
     if (watchResult.error) throw new Error(`観戦情報の保存に失敗しました: ${watchResult.error.message}`);
 
@@ -464,10 +483,12 @@ export const saveMatchRecord = async (
 
     const ticketResult = await client.from('tickets').select('id').eq('match_id', record.id).maybeSingle();
     if (ticketResult.error) throw new Error(`チケット情報の確認に失敗しました: ${ticketResult.error.message}`);
-    const ticketWrite = ticketResult.data
+    if (!record.tickets.length && ticketResult.data) throw new Error('既存チケットの削除には明示的な削除操作が必要です');
+    const ticketWrite = !record.tickets.length ? { error: null } : ticketResult.data
       ? await client.from('tickets').update(ticketPayload(record, ownerId)).eq('id', ticketResult.data.id)
       : await client.from('tickets').insert(ticketPayload(record, ownerId));
     if (ticketWrite.error) throw new Error(`チケット保存に失敗しました。部分保存の可能性があります: ${ticketWrite.error.message}`);
+    return { updated_at: savedUpdatedAt || record.updatedAt };
   } catch (error) {
     if (isNew && matchWritten) {
       const cleanup = await client.from('matches').delete().eq('id', record.id).eq('owner_id', ownerId);
@@ -499,6 +520,9 @@ export const saveMatchRecordAtomic = async (
   record: MatchRecord,
   options: AtomicSaveOptions = {},
 ) => {
+  record = normalizeRecordTickets(record);
+  if (record.tickets.length > 1) throw new Error('複数チケットがあるため保存できません');
+  if (pendingRefresh.has(record.id)) throw new Error('前回の保存は成功しましたが再取得が必要です。最新データを再読み込みしてください。');
   await validateSeatType(client, record);
   const ticketRows = await client
     .from('tickets')
@@ -510,6 +534,8 @@ export const saveMatchRecordAtomic = async (
   if ((ticketRows.data || []).length > 1) {
     throw new Error('同一試合に複数チケットがあるため、Atomic Saveでは保存できません。複数チケット対応後に再試行してください。');
   }
+  if (!record.tickets.length && ticketRows.data?.length) throw new Error('既存チケットの削除には明示的な削除操作が必要です');
+  if (record.tickets[0]?.id && ticketRows.data?.length && record.tickets[0].id !== ticketRows.data[0].id) throw new Error('チケットIDがDBと一致しません');
   const result = await client.rpc('save_match_record', {
     p_payload: atomicPayload(record, ownerId, options),
   });
@@ -527,15 +553,22 @@ export const saveMatchRecordAtomic = async (
   if (!response?.ok || response.match_id !== record.id || !response.watch_record_id) {
     throw new Error('原子的試合保存の応答を検証できませんでした。データ状態を確認してください。');
   }
-  const updatedAtResult = await client
+  pendingRefresh.add(record.id);
+  let updatedAtResult;
+  try {
+    updatedAtResult = await client
     .from('matches')
     .select('updated_at')
     .eq('id', record.id)
     .single();
-  if (updatedAtResult.error || !updatedAtResult.data?.updated_at) {
-    throw new Error(`保存後の更新日時取得に失敗しました: ${updatedAtResult.error?.message || 'updated_atがありません'}`);
+  } catch {
+    return { ...response, updated_at: record.updatedAt, refreshRequired: true };
   }
-  return { ...response, updated_at: updatedAtResult.data.updated_at };
+  if (updatedAtResult.error || !updatedAtResult.data?.updated_at) {
+    return { ...response, updated_at: record.updatedAt, refreshRequired: true };
+  }
+  pendingRefresh.delete(record.id);
+  return { ...response, updated_at: updatedAtResult.data.updated_at, refreshRequired: false };
 };
 
 export const saveMatchRecordWithPhase2 = async (
@@ -547,8 +580,7 @@ export const saveMatchRecordWithPhase2 = async (
   if (isAtomicSaveEnabled) {
     return saveMatchRecordAtomic(client, ownerId, record);
   }
-  await saveMatchRecord(client, ownerId, record, isNew);
-  return undefined;
+  return saveMatchRecord(client, ownerId, record, isNew);
 };
 
 export const deleteMatchRecord = async (client: SupabaseClient, ownerId: string, id: string) => {

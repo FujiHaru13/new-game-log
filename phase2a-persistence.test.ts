@@ -62,11 +62,11 @@ test('record loading retains all tickets with stable IDs and order', () => {
     updated_at: '2026-11-06T00:00:00Z',
   } as any;
   const record = toMatchRecord(match, undefined, [], undefined, [
-    { id: 'ticket-b', match_id: 'match-1', status: 'ticketed', quantity: 2 },
-    { id: 'ticket-a', match_id: 'match-1', status: 'purchased', quantity: 1 },
+    { id: '00000000-0000-0000-0000-00000000000b', match_id: 'match-1', status: 'ticketed', quantity: 2 },
+    { id: '00000000-0000-0000-0000-00000000000a', match_id: 'match-1', status: 'purchased', quantity: 1 },
   ] as any);
-  assert.deepEqual(record.tickets.map(ticket => ticket.id), ['ticket-a', 'ticket-b']);
-  assert.equal(record.ticketInfo.id, 'ticket-a');
+  assert.deepEqual(record.tickets.map(ticket => ticket.id), ['00000000-0000-0000-0000-00000000000a', '00000000-0000-0000-0000-00000000000b']);
+  assert.equal(record.ticketInfo.id, '00000000-0000-0000-0000-00000000000a');
   assert.equal(record.tickets[1].quantity, 2);
 });
 
@@ -194,7 +194,7 @@ test('ticket payload includes all mutable ticket fields', async () => {
   const client = mockClient({
     data: { ok: true, match_id: record.id, watch_record_id: '00000000-0000-0000-0000-000000000002' },
   });
-  const ticketRecord = {
+  const ticketRecord: MatchRecord = {
     ...record,
     ticketInfo: {
       ...record.ticketInfo,
@@ -209,6 +209,7 @@ test('ticket payload includes all mutable ticket fields', async () => {
       quantity: 1,
     }],
   };
+  ticketRecord.tickets = [ticketRecord.ticketInfo];
   await saveMatchRecordAtomic(client, '00000000-0000-0000-0000-000000000003', ticketRecord);
   const payload = JSON.parse(client.calls[0].table) as Record<string, any>;
   assert.equal(payload.ticket.id, ticketRecord.ticketInfo.id);
@@ -222,10 +223,11 @@ test('ticket deletion requires an ID and uses an explicit operation', async () =
   const client = mockClient({
     data: { ok: true, match_id: record.id, watch_record_id: '00000000-0000-0000-0000-000000000002' },
   });
-  const ticketRecord = {
+  const ticketRecord: MatchRecord = {
     ...record,
     ticketInfo: { ...record.ticketInfo, id: '00000000-0000-0000-0000-000000000010' },
   };
+  ticketRecord.tickets = [ticketRecord.ticketInfo];
   await saveMatchRecordAtomic(
     client,
     '00000000-0000-0000-0000-000000000003',
@@ -246,4 +248,157 @@ test('ticket deletion without an ID is rejected before the RPC call', async () =
     /チケット削除には対象チケットIDが必要です/,
   );
   assert.equal(client.calls.length, 0);
+});
+
+import { editRecordTicket, normalizeRecordTickets, normalizeStoredRecords } from './src/utils/ticketRecords';
+import { isAtomicSaveEnabled, saveMatchRecord } from './src/lib/supabaseRecords';
+import { INITIAL_SEED_RECORDS } from './src/data/seedData';
+
+
+test('zero tickets derive only the documented compatibility placeholder', () => {
+  const value = normalizeRecordTickets({ ...record, tickets: [] });
+  assert.deepEqual(value.ticketInfo, { status: 'release_waiting' });
+  assert.deepEqual(value.tickets, []);
+});
+test('legacy records without tickets migrate meaningful ticketInfo', () => {
+  const { tickets, ...legacy } = record;
+  assert.deepEqual(normalizeRecordTickets(legacy).tickets, [record.ticketInfo]);
+});
+test('legacy placeholder does not create a fictitious ticket', () => {
+  assert.deepEqual(normalizeRecordTickets({ ticketInfo: { status: 'release_waiting' } }).tickets, []);
+});
+test('canonical tickets override stale compatibility data', () => {
+  const value = normalizeRecordTickets({ ...record, ticketInfo: { status: 'purchased' } });
+  assert.deepEqual(value.ticketInfo, record.tickets[0]);
+});
+test('single ticket form edit synchronizes both views and keeps hidden fields', () => {
+  const value = editRecordTicket(record, { notes: 'edited' });
+  assert.deepEqual(value.ticketInfo, value.tickets[0]);
+  assert.equal(value.ticketInfo.vendor, 'Vendor');
+});
+test('zero to one ticket form edit synchronizes canonical array', () => {
+  const value = editRecordTicket({ ...record, tickets: [] }, { status: 'purchased' });
+  assert.equal(value.tickets.length, 1);
+  assert.deepEqual(value.ticketInfo, value.tickets[0]);
+});
+test('form edit retains UUID and database concurrency timestamp', () => {
+  const ticket = { ...record.ticketInfo, id: '00000000-0000-0000-0000-000000000010' };
+  const value = editRecordTicket({ ...record, tickets: [ticket] }, { notes: 'changed' });
+  assert.equal(value.tickets[0].id, ticket.id);
+  assert.equal(value.updatedAt, record.updatedAt);
+});
+test('unchanged form keeps empty tickets empty', () => {
+  assert.deepEqual(editRecordTicket({ ...record, tickets: [] }, { status: 'release_waiting' }).tickets, []);
+});
+test('normalization preserves all tickets and form refuses multiple tickets', () => {
+  const value = normalizeRecordTickets({ ...record, tickets: [record.ticketInfo, { status: 'purchased' }] });
+  assert.equal(value.tickets.length, 2);
+  assert.throws(() => editRecordTicket(value, {}), /複数/);
+});
+test('invalid arrays and invalid IDs are rejected at loading boundary', () => {
+  for (const tickets of [null, {}, [{ status: 'ticketed', id: 'invalid' }], [null]]) {
+    assert.throws(() => normalizeStoredRecords([{ ...record, tickets }]));
+  }
+});
+test('small stored datasets are normalized without replacing records', () => {
+  assert.equal(normalizeStoredRecords([record])[0].id, record.id);
+  assert.deepEqual(normalizeStoredRecords([]), []);
+});
+test('all seed records have derived compatibility values', () => {
+  for (const value of INITIAL_SEED_RECORDS) assert.deepEqual(value.ticketInfo, value.tickets[0] || { status: 'release_waiting' });
+});
+test('both saving routes reject multiple canonical tickets before writes', async () => {
+  const client = mockClient({ data: {} });
+  const value = { ...record, tickets: [record.ticketInfo, record.ticketInfo] };
+  await assert.rejects(saveMatchRecord(client, 'owner', value, false), /複数/);
+  await assert.rejects(saveMatchRecordAtomic(client, 'owner', value), /複数/);
+  assert.equal(client.calls.length, 0);
+});
+test('failed save preserves input and concurrency timestamp', async () => {
+  const value = editRecordTicket(record, { notes: 'unsaved input' });
+  const before = structuredClone(value);
+  await assert.rejects(saveMatchRecordAtomic(mockClient({ error: { message: 'failed' } }), 'owner', value));
+  assert.deepEqual(value, before);
+});
+test('Atomic Save remains disabled by default', () => {
+  assert.equal(isAtomicSaveEnabled, false);
+});
+
+import * as XLSX from 'xlsx';
+import { parseExcelFile } from './src/utils/excelUtils';
+test('Excel import normalizes explicit tickets and avoids inferred phantom tickets', async () => {
+  const book = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(book, XLSX.utils.json_to_sheet([
+    { '日付': '2026-11-06', 'チケット状態': 'ticketed' },
+    { '日付': '2026-11-07', 'チケット状態': '' },
+  ]), '記録');
+  const bytes = XLSX.write(book, { type: 'buffer', bookType: 'xlsx' });
+  const result = await parseExcelFile({ arrayBuffer: async () => bytes } as File);
+  assert.equal(result.records.length, 2);
+  assert.deepEqual(result.records[0].tickets, [result.records[0].ticketInfo]);
+  assert.equal(result.records[0].tickets[0].status, 'ticketed');
+  assert.deepEqual(result.records[1].tickets, []);
+});
+
+test('zero-ticket RPC payload does not request ticket replacement', async () => {
+  const client = mockClient({ data: { ok: true, match_id: record.id, watch_record_id: 'watch' } });
+  await saveMatchRecordAtomic(client, 'owner', { ...record, tickets: [] });
+  const payload = JSON.parse(client.calls[0].table);
+  assert.equal(payload.replace.ticket, false);
+});
+
+test('RPC conflict keeps edited input and database timestamp unchanged', async () => {
+  const value = editRecordTicket(record, { notes: 'keep input' });
+  const client = mockClient({ error: { code: 'PT409', message: 'conflict' } } as any);
+  await assert.rejects(saveMatchRecordAtomic(client, 'owner', value), /別の画面で更新/);
+  assert.equal(value.ticketInfo.notes, 'keep input');
+  assert.equal(value.updatedAt, record.updatedAt);
+  assert.equal(client.calls.length, 1);
+});
+
+test('RPC success followed by timestamp read failure is committed and blocks resaving', async () => {
+  const value = { ...record, id: '00000000-0000-0000-0000-000000000099' };
+  const client = mockClient({ data: { ok: true, match_id: value.id, watch_record_id: 'watch' } });
+  const original = client.from.bind(client);
+  client.from = ((table: string) => table === 'matches' ? {
+    select: () => ({ eq: () => ({ single: async () => ({ error: { message: 'offline' }, data: null }) }) }),
+  } : original(table)) as typeof client.from;
+  const result = await saveMatchRecordAtomic(client, 'owner', value);
+  assert.equal(result.refreshRequired, true);
+  assert.equal(result.updated_at, record.updatedAt);
+  await assert.rejects(saveMatchRecordAtomic(client, 'owner', value), /前回の保存は成功/);
+  assert.equal(client.calls.length, 1);
+});
+
+function restClient() {
+  const writes: Array<{ table: string; operation: string; payload: any }> = [];
+  const ticketId = '00000000-0000-0000-0000-000000000010';
+  const client = {
+    from(table: string) {
+      const query: any = {
+        data: table === 'tickets' ? [{ id: ticketId }] : null,
+        error: null,
+        select() { return query; }, eq() { return query; },
+        single: async () => ({ data: table === 'matches' ? { updated_at: '2026-11-06T01:00:00.123456Z' } : { id: 'watch' }, error: null }),
+        maybeSingle: async () => ({ data: { id: ticketId }, error: null }),
+      };
+      for (const operation of ['upsert', 'insert', 'update', 'delete']) {
+        query[operation] = (payload: any) => {
+          writes.push({ table, operation, payload });
+          return query;
+        };
+      }
+      return query;
+    },
+  } as unknown as SupabaseClient;
+  return { client, writes, ticketId };
+}
+test('disabled Atomic route retains REST compatibility, ticket UUID and DB time', async () => {
+  const { client, writes, ticketId } = restClient();
+  const value = editRecordTicket({ ...record, tickets: [{ ...record.ticketInfo, id: ticketId }] }, { notes: 'REST edit' });
+  const result = await saveMatchRecord(client, 'owner', value, false);
+  assert.equal(result.updated_at, '2026-11-06T01:00:00.123456Z');
+  assert.equal(writes.find(write => write.table === 'tickets')?.operation, 'update');
+  assert.equal(writes.find(write => write.table === 'tickets')?.payload.notes, 'REST edit');
+  assert.equal(value.ticketInfo.id, ticketId);
 });

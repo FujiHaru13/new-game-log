@@ -3,8 +3,10 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+import { normalizeRecordTickets } from './ticketRecords';
+
 import * as XLSX from 'xlsx';
-import { MatchRecord, CategoryId, MatchStatus, WatchStatus, MatchType } from '../types/baseball';
+import { MatchRecord, CategoryId, MatchStatus, WatchStatus, MatchType, TicketStatus } from '../types/baseball';
 import {
   getMatchResult,
   getMatchDayOfWeek,
@@ -349,6 +351,9 @@ export async function parseExcelFile(file: File): Promise<{
       watchStatus = 'scheduled';
     }
 
+    const rawTicketStatus = findVal(['チケット状態']);
+    const ticketStatuses: TicketStatus[] = ['release_waiting', 'plan_to_buy', 'purchased', 'ticket_waiting', 'ticketed', 'cancelled_refund'];
+    if (rawTicketStatus && !ticketStatuses.includes(rawTicketStatus)) throw new Error('不正なチケット状態です');
     const record: Omit<MatchRecord, 'tickets'> = {
       id: `imported_${Date.now()}_${idx}`,
       date: dateStr,
@@ -390,7 +395,7 @@ export async function parseExcelFile(file: File): Promise<{
         refundStatus: 'none',
       },
       ticketInfo: {
-        status: watchStatus === 'watched' ? 'ticketed' : 'purchased',
+        status: rawTicketStatus || (rawVendor ? (watchStatus === 'watched' ? 'ticketed' : 'purchased') : 'release_waiting'),
         vendor: rawVendor || undefined,
       },
       companions: companions || undefined,
@@ -407,7 +412,7 @@ export async function parseExcelFile(file: File): Promise<{
 
   return {
     sheetNames,
-    records: parsedRecords.map(record => ({ ...record, tickets: [record.ticketInfo] })),
+    records: parsedRecords.map(normalizeRecordTickets),
     rawRowCount: rawRows.length,
     unrecognizedColumns: unrecognized,
   };

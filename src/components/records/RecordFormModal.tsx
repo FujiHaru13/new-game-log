@@ -3,6 +3,9 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+import { SavedRecordRefreshRequiredError } from '../../lib/supabaseRecords';
+import { editRecordTicket } from '../../utils/ticketRecords';
+
 import React, { useState, useEffect, useRef } from 'react';
 import { useBaseball } from '../../context/BaseballContext';
 import {
@@ -45,6 +48,10 @@ export const RecordFormModal: React.FC<RecordFormModalProps> = ({
   const [activeStep, setActiveStep] = useState<number>(1);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const submitInProgress = useRef(false);
+  const saveNeedsRefresh = useRef(false);
+  useEffect(() => {
+    if (!isOpen) saveNeedsRefresh.current = false;
+  }, [isOpen]);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
   // Form State
@@ -275,7 +282,7 @@ export const RecordFormModal: React.FC<RecordFormModalProps> = ({
   // Submit Handler
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (submitInProgress.current) return;
+    if (submitInProgress.current || saveNeedsRefresh.current) return;
     submitInProgress.current = true;
     setErrorMessage(null);
 
@@ -405,18 +412,19 @@ export const RecordFormModal: React.FC<RecordFormModalProps> = ({
     setIsSubmitting(true);
     try {
       if (initialRecord) {
-        await updateRecord({
+        await updateRecord(editRecordTicket({
           ...recordPayload,
           id: initialRecord.id,
           createdAt: initialRecord.createdAt,
           updatedAt: initialRecord.updatedAt,
           tickets: initialRecord.tickets,
-        });
+        }, recordPayload.ticketInfo));
       } else {
         await addRecord(recordPayload);
       }
       onClose();
     } catch (err: any) {
+      if (err instanceof SavedRecordRefreshRequiredError) saveNeedsRefresh.current = true;
       setErrorMessage(err?.message || '保存に失敗しました。');
     } finally {
       setIsSubmitting(false);

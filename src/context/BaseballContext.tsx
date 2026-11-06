@@ -3,13 +3,15 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { createContext, useContext, useState, useEffect } from 'react';
+import { normalizeRecordTickets, normalizeStoredRecords } from '../utils/ticketRecords';
+
+import React, { createContext, useContext, useState, useEffect, useRef } from 'react';
 import { MatchRecord, CategoryId, Stadium, SeatTypeMaster } from '../types/baseball';
 import { STADIUMS } from '../data/stadiums';
 import { INITIAL_SEED_RECORDS } from '../data/seedData';
 import { getMatchResult } from '../utils/baseballUtils';
 import { getSupabaseConnection, saveSupabaseConnection, SupabaseConnection } from '../lib/supabase';
-import { deleteMatchRecord, isAtomicSaveEnabled, loadRecordTables, saveMatchRecordWithPhase2, toMatchRecord } from '../lib/supabaseRecords';
+import { deleteMatchRecord, SavedRecordRefreshRequiredError, isAtomicSaveEnabled, loadRecordTables, saveMatchRecordWithPhase2, toMatchRecord } from '../lib/supabaseRecords';
 import { Session, User } from '@supabase/supabase-js';
 
 const STORAGE_KEY = 'baseball_watch_log_data_v3_excel';
@@ -78,6 +80,7 @@ export const BaseballProvider: React.FC<{ children: React.ReactNode }> = ({ chil
   const [isAuthorized, setIsAuthorized] = useState(false);
   const [masterDataError, setMasterDataError] = useState<string | null>(null);
   const [stadiums, setStadiums] = useState<Stadium[]>(() => getSupabaseConnection() ? [] : STADIUMS);
+  const localStorageBlocked = useRef(false);
   // 記録データ（観戦記録.xlsx の全259試合実データ）
   const [records, setRecords] = useState<MatchRecord[]>(() => {
     if (getSupabaseConnection()) return [];
@@ -85,12 +88,12 @@ export const BaseballProvider: React.FC<{ children: React.ReactNode }> = ({ chil
       const stored = localStorage.getItem(STORAGE_KEY);
       if (stored) {
         const parsed = JSON.parse(stored);
-        if (Array.isArray(parsed) && parsed.length >= 200) {
-          return parsed;
-        }
+        return normalizeStoredRecords(parsed);
       }
     } catch (e) {
+      localStorageBlocked.current = true;
       console.error('Failed to load records from localStorage', e);
+      return [];
     }
     return INITIAL_SEED_RECORDS;
   });
@@ -346,34 +349,32 @@ export const BaseballProvider: React.FC<{ children: React.ReactNode }> = ({ chil
   // ローカルストレージへの永続化
   useEffect(() => {
     try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(records));
+      if (!localStorageBlocked.current && !connection) localStorage.setItem(STORAGE_KEY, JSON.stringify(records));
     } catch (e) {
       console.error('Failed to save records to localStorage', e);
     }
-  }, [records]);
+  }, [records, connection]);
 
   // CRUD
   const addRecord = async (data: Omit<MatchRecord, 'id' | 'createdAt' | 'updatedAt' | 'tickets'>): Promise<MatchRecord> => {
+    if (!connection && localStorageBlocked.current) throw new Error('保存済みデータが不正なため上書きを停止しています。元データを確認してください。');
     const now = new Date().toISOString();
-    const newRecord: MatchRecord = {
+    const newRecord: MatchRecord = normalizeRecordTickets({
       ...data,
       id: crypto.randomUUID(),
       createdAt: now,
       updatedAt: now,
-      tickets: [data.ticketInfo],
-    };
+    });
     if (connection && user) {
+      let refreshRequired = false;
       let savedUpdatedAt = newRecord.updatedAt;
-      try {
+      {
         const result = await saveMatchRecordWithPhase2(connection.client, user.id, newRecord, true);
-        if (isAtomicSaveEnabled && result?.updated_at) savedUpdatedAt = result.updated_at;
-      } catch (error) {
-        await loadRemoteData().catch(refreshError => {
-          console.error('Failed to refresh records after save failure', refreshError);
-        });
-        throw error;
+        if (result?.updated_at) savedUpdatedAt = result.updated_at;
+        refreshRequired = !!(result && 'refreshRequired' in result && result.refreshRequired);
       }
       setRecords(prev => [{ ...newRecord, updatedAt: savedUpdatedAt }, ...prev]);
+      if (refreshRequired) throw new SavedRecordRefreshRequiredError();
     } else {
       setRecords(prev => [newRecord, ...prev]);
     }
@@ -381,20 +382,20 @@ export const BaseballProvider: React.FC<{ children: React.ReactNode }> = ({ chil
   };
 
   const updateRecord = async (updated: MatchRecord): Promise<void> => {
-    const now = new Date().toISOString();
-    let savedUpdatedAt = now;
+    if (!connection && localStorageBlocked.current) throw new Error('保存済みデータが不正なため上書きを停止しています。元データを確認してください。');
+    updated = normalizeRecordTickets(updated);
+    if (updated.tickets.length > 1) throw new Error('複数チケットがあるため保存できません');
+    let refreshRequired = false;
+    let savedUpdatedAt = connection ? updated.updatedAt : new Date().toISOString();
     if (connection && user) {
-      try {
+      {
         const result = await saveMatchRecordWithPhase2(connection.client, user.id, updated, false);
-        if (isAtomicSaveEnabled && result?.updated_at) savedUpdatedAt = result.updated_at;
-      } catch (error) {
-        await loadRemoteData().catch(refreshError => {
-          console.error('Failed to refresh records after update failure', refreshError);
-        });
-        throw error;
+        if (result?.updated_at) savedUpdatedAt = result.updated_at;
+        refreshRequired = !!(result && 'refreshRequired' in result && result.refreshRequired);
       }
     }
     setRecords(prev => prev.map(r => (r.id === updated.id ? { ...updated, updatedAt: savedUpdatedAt } : r)));
+    if (refreshRequired) throw new SavedRecordRefreshRequiredError();
   };
 
   const deleteRecord = async (id: string): Promise<void> => {
@@ -411,6 +412,7 @@ export const BaseballProvider: React.FC<{ children: React.ReactNode }> = ({ chil
   };
 
   const importRecords = (incoming: MatchRecord[], mode: 'merge' | 'replace') => {
+    incoming = normalizeStoredRecords(incoming);
     let added = 0;
     let updated = 0;
 
