@@ -41,6 +41,12 @@ Phase 2では、現在の`MatchRecord`の詳細項目を正規化テーブルへ
 
 関数は`SECURITY INVOKER`、`search_path = public, pg_catalog`とし、`authenticated`だけにEXECUTEを付与します。`PUBLIC`と`anon`はEXECUTE不可です。`payload jsonb`はJSON演算子で型変換し、所有者はpayloadから受け取らず`auth.uid()`を使用します。`replace`オブジェクトがtrueの子集合だけを置換するため、未指定項目は保持され、明示的な空配列/nullは削除として扱えます。
 
+更新時は`match.expected_updated_at`を必須の競合検出値として送信します。DBの`updated_at`と一致しない場合は`40001`で全体をロールバックします。新規行にはこの値を要求せず、既存行の更新だけを保護します。`watch`を省略した既存試合は既存観戦記録を保持し、新規試合で省略した場合だけエラーにします。
+
+nullableな値はJSONの`null`で表現し、空文字列は契約違反として拒否します。したがって未指定（JSONキーなし）、明示的`null`（NULL化）、空文字列（拒否）は区別されます。
+
+チケットはDB上複数行を許容します。`ticket.id`を指定した場合はその所有者・試合の行だけを更新します。複数行が存在するのにIDを省略した更新、またはIDなしの明示削除は拒否し、既存チケットを誤って全削除しません。
+
 アプリ側は`VITE_SUPABASE_ATOMIC_SAVE=true`の場合だけRPCを呼びます。既定値はfalseで、Migration未適用の環境では従来の保存処理を使用します。RPC応答は`ok`, `match_id`, `watch_record_id`を検証し、不一致を成功扱いしません。
 
 環境変数は`.env.example`に記載しています。Migration未適用の環境でこのフラグをtrueにしてはいけません。

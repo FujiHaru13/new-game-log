@@ -8,6 +8,7 @@
     "build": "vite build",
     "test:rls": "node --test verify-rls-rest.test.mjs",
     "test:phase2a": "tsx --test phase2a-persistence.test.ts",
+    "test": "npm run test:rls && npm run test:phase2a",
     "preview": "vite preview",
     "clean": "rm -rf dist server.js",
     "lint": "tsc --noEmit"

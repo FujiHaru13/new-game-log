@@ -259,6 +259,7 @@ export const toMatchRecord = (
       refundStatus: watch?.refund_status || 'none',
     },
     ticketInfo: {
+      id: ticket?.id,
       status: ticket?.status || 'release_waiting',
       releaseDate: ticket?.release_date || undefined,
       purchaseDate: ticket?.purchase_date || undefined,
@@ -332,7 +333,7 @@ export interface AtomicSaveOptions {
 const atomicPayload = (record: MatchRecord, ownerId: string, options: AtomicSaveOptions) => {
   const replaceDetails = options.replaceDetails ?? true;
   return {
-    match: matchPayload(record, ownerId),
+    match: { ...matchPayload(record, ownerId), expected_updated_at: record.updatedAt },
     watch: watchPayload(record, ownerId),
     categories: record.categories.map(id => ({ id, is_primary: id === record.primaryCategory })),
     seat: {
@@ -343,6 +344,7 @@ const atomicPayload = (record: MatchRecord, ownerId: string, options: AtomicSave
       seat_number: record.seatInfo.seatNumber || null,
     },
     ticket: {
+      id: record.ticketInfo.id || null,
       status: record.ticketInfo.status,
       release_date: record.ticketInfo.releaseDate || null,
       purchase_date: record.ticketInfo.purchaseDate || null,

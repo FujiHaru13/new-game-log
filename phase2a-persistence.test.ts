@@ -70,6 +70,36 @@ test('atomic save sends all detail collections and explicit replace flags', asyn
   assert.deepEqual(payload.home_runs, ['Batter']);
   assert.equal(payload.replace.innings, true);
   assert.equal(payload.replace.splits, true);
+  assert.equal(payload.match.expected_updated_at, record.updatedAt);
+  assert.equal(payload.ticket.id, null);
+});
+
+test('payload keeps the optimistic concurrency value for existing records', async () => {
+  const client = mockClient({
+    data: { ok: true, match_id: record.id, watch_record_id: '00000000-0000-0000-0000-000000000002' },
+  });
+  await saveMatchRecordAtomic(client, '00000000-0000-0000-0000-000000000003', record, { replaceDetails: false });
+  const payload = JSON.parse(client.calls[0].table) as Record<string, any>;
+  assert.equal(payload.match.expected_updated_at, record.updatedAt);
+  assert.equal(payload.replace.innings, false);
+  assert.equal(payload.replace.links, false);
+});
+
+test('inning payload preserves zero, missing, and X as distinct values', async () => {
+  const client = mockClient({
+    data: { ok: true, match_id: record.id, watch_record_id: '00000000-0000-0000-0000-000000000002' },
+  });
+  const inningRecord = {
+    ...record,
+    innings: {
+      home: [0, 'X', null] as (number | 'X' | null)[],
+      away: [null, 0, null],
+    },
+  };
+  await saveMatchRecordAtomic(client, '00000000-0000-0000-0000-000000000003', inningRecord);
+  const payload = JSON.parse(client.calls[0].table) as Record<string, any>;
+  assert.deepEqual(payload.innings.home, [0, 'X', null]);
+  assert.deepEqual(payload.innings.away, [null, 0, null]);
 });
 
 test('atomic save rejects an invalid RPC success response', async () => {

@@ -82,6 +82,7 @@ export interface CostInfo {
 }
 
 export interface TicketManagement {
+  id?: string;
   status: TicketStatus;
   releaseDate?: string;       // チケット発売日
   purchaseDate?: string;      // 購入日

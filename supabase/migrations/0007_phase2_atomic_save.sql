@@ -1,5 +1,6 @@
 -- Phase 2A: atomic persistence for match detail data.
 -- Apply only after 0001-0006. This migration does not modify existing rows.
+begin;
 
 alter table public.match_inning_scores
   add column if not exists is_not_played boolean not null default false;
@@ -18,6 +19,20 @@ create table if not exists public.payment_splits (
     foreign key (watch_record_id, owner_id)
     references public.watch_records(id, owner_id) on delete cascade
 );
+
+do $migration_check$
+begin
+  if not exists (
+    select 1 from information_schema.columns
+    where table_schema = 'public' and table_name = 'payment_splits'
+      and column_name in ('owner_id', 'watch_record_id', 'title', 'amount')
+    group by table_schema, table_name
+    having count(*) = 4
+  ) then
+    raise exception 'payment_splits exists with an incompatible schema';
+  end if;
+end;
+$migration_check$;
 
 create index if not exists payment_splits_owner_watch_idx
   on public.payment_splits (owner_id, watch_record_id);
@@ -63,7 +78,9 @@ declare
   v_match_id uuid;
   v_watch_id uuid;
   v_existing_owner uuid;
+  v_existing_updated_at timestamptz;
   v_ticket_id uuid;
+  v_ticket_count integer;
   v_match jsonb := p_payload -> 'match';
   v_watch jsonb := p_payload -> 'watch';
   v_replace jsonb := coalesce(p_payload -> 'replace', '{}'::jsonb);
@@ -74,29 +91,68 @@ declare
   v_player text;
   v_role text;
 begin
+  if p_payload is null or jsonb_typeof(p_payload) <> 'object' then
+    raise exception using errcode = '22023', message = 'payload must be a JSON object';
+  end if;
+  if jsonb_typeof(v_replace) <> 'object' then
+    raise exception using errcode = '22023', message = 'replace must be a JSON object';
+  end if;
+  if v_replace ? 'innings' and jsonb_typeof(p_payload -> 'innings') <> 'object' then
+    raise exception using errcode = '22023', message = 'innings must be an object';
+  end if;
+  if v_replace ? 'pitchers' and jsonb_typeof(p_payload -> 'pitchers') <> 'object' then
+    raise exception using errcode = '22023', message = 'pitchers must be an object';
+  end if;
+  if v_replace ? 'categories' and jsonb_typeof(p_payload -> 'categories') <> 'array' then
+    raise exception using errcode = '22023', message = 'categories must be an array';
+  end if;
+  if v_replace ? 'links' and jsonb_typeof(p_payload -> 'links') <> 'array' then
+    raise exception using errcode = '22023', message = 'links must be an array';
+  end if;
+  if v_replace ? 'splits' and jsonb_typeof(p_payload -> 'splits') <> 'array' then
+    raise exception using errcode = '22023', message = 'splits must be an array';
+  end if;
   if v_owner_id is null or not public.current_user_is_authorized() then
     raise exception using errcode = '42501', message = 'authorized user is required';
   end if;
   if jsonb_typeof(v_match) <> 'object' or nullif(v_match ->> 'id', '') is null then
     raise exception using errcode = '22023', message = 'match.id is required';
   end if;
+  if exists (select 1 from jsonb_each_text(v_match) e where e.value = '') then
+    raise exception using errcode = '22023', message = 'empty strings are not valid; use JSON null';
+  end if;
+  if jsonb_typeof(v_watch) = 'object'
+     and exists (select 1 from jsonb_each_text(v_watch) e where e.value = '') then
+    raise exception using errcode = '22023', message = 'empty strings are not valid; use JSON null';
+  end if;
 
   v_match_id := (v_match ->> 'id')::uuid;
-  select owner_id into v_existing_owner
+  select owner_id, updated_at into v_existing_owner, v_existing_updated_at
   from public.matches
   where id = v_match_id
   for update;
   if found and v_existing_owner <> v_owner_id then
     raise exception using errcode = '42501', message = 'match belongs to another owner';
   end if;
+  if found and not (v_match ? 'expected_updated_at')
+     then raise exception using errcode = '40001', message = 'expected_updated_at is required for updates';
+  end if;
+  if found and (v_match ->> 'expected_updated_at') is null
+     then raise exception using errcode = '40001', message = 'expected_updated_at cannot be null for updates';
+  end if;
+  if found and v_match ? 'expected_updated_at'
+     and v_existing_updated_at <> (v_match ->> 'expected_updated_at')::timestamptz then
+    raise exception using errcode = '40001', message = 'match was modified by another session';
+  end if;
 
-  insert into public.matches (
+  if v_existing_owner is null then
+    insert into public.matches (
     id, owner_id, match_date, date_unknown, start_time,
     home_team_id, away_team_id, stadium_id, stadium_custom_name,
     match_type, match_status, home_score, away_score, score_confirmed,
     duration_minutes, events, notes
-  )
-  values (
+    )
+    values (
     v_match_id, v_owner_id, nullif(v_match ->> 'match_date', '')::date,
     coalesce((v_match ->> 'date_unknown')::boolean, false),
     nullif(v_match ->> 'start_time', '')::time,
@@ -107,26 +163,30 @@ begin
     coalesce((v_match ->> 'score_confirmed')::boolean, false),
     (v_match ->> 'duration_minutes')::integer,
     nullif(v_match ->> 'events', ''), nullif(v_match ->> 'notes', '')
-  )
-  on conflict (id) do update set
-    match_date = excluded.match_date,
-    date_unknown = excluded.date_unknown,
-    start_time = excluded.start_time,
-    home_team_id = excluded.home_team_id,
-    away_team_id = excluded.away_team_id,
-    stadium_id = excluded.stadium_id,
-    stadium_custom_name = excluded.stadium_custom_name,
-    match_type = excluded.match_type,
-    match_status = excluded.match_status,
-    home_score = excluded.home_score,
-    away_score = excluded.away_score,
-    score_confirmed = excluded.score_confirmed,
-    duration_minutes = excluded.duration_minutes,
-    events = excluded.events,
-    notes = excluded.notes;
+    );
+  else
+    update public.matches set
+      match_date = case when v_match ? 'match_date' then nullif(v_match ->> 'match_date', '')::date else match_date end,
+      date_unknown = case when v_match ? 'date_unknown' then (v_match ->> 'date_unknown')::boolean else date_unknown end,
+      start_time = case when v_match ? 'start_time' then nullif(v_match ->> 'start_time', '')::time else start_time end,
+      home_team_id = case when v_match ? 'home_team_id' then v_match ->> 'home_team_id' else home_team_id end,
+      away_team_id = case when v_match ? 'away_team_id' then v_match ->> 'away_team_id' else away_team_id end,
+      stadium_id = case when v_match ? 'stadium_id' then nullif(v_match ->> 'stadium_id', '') else stadium_id end,
+      stadium_custom_name = case when v_match ? 'stadium_custom_name' then nullif(v_match ->> 'stadium_custom_name', '') else stadium_custom_name end,
+      match_type = case when v_match ? 'match_type' then v_match ->> 'match_type' else match_type end,
+      match_status = case when v_match ? 'match_status' then v_match ->> 'match_status' else match_status end,
+      home_score = case when v_match ? 'home_score' then (v_match ->> 'home_score')::integer else home_score end,
+      away_score = case when v_match ? 'away_score' then (v_match ->> 'away_score')::integer else away_score end,
+      score_confirmed = case when v_match ? 'score_confirmed' then (v_match ->> 'score_confirmed')::boolean else score_confirmed end,
+      duration_minutes = case when v_match ? 'duration_minutes' then (v_match ->> 'duration_minutes')::integer else duration_minutes end,
+      events = case when v_match ? 'events' then nullif(v_match ->> 'events', '') else events end,
+      notes = case when v_match ? 'notes' then nullif(v_match ->> 'notes', '') else notes end
+    where id = v_match_id and owner_id = v_owner_id;
+  end if;
 
+  select id into v_watch_id from public.watch_records
+  where match_id = v_match_id and owner_id = v_owner_id for update;
   if jsonb_typeof(v_watch) = 'object' then
-    select id into v_watch_id from public.watch_records where match_id = v_match_id for update;
     if v_watch_id is null then
       insert into public.watch_records (
         owner_id, match_id, watch_status, cheer_team_id, companions, watch_memo,
@@ -145,18 +205,18 @@ begin
       returning id into v_watch_id;
     else
       update public.watch_records set
-        watch_status = v_watch ->> 'watch_status',
-        cheer_team_id = v_watch ->> 'cheer_team_id',
-        companions = nullif(v_watch ->> 'companions', ''),
-        watch_memo = nullif(v_watch ->> 'watch_memo', ''),
-        total_price = (v_watch ->> 'total_price')::numeric,
-        my_expense = (v_watch ->> 'my_expense')::numeric,
-        payment_date = nullif(v_watch ->> 'payment_date', '')::date,
-        payment_destination = nullif(v_watch ->> 'payment_destination', ''),
-        payment_method = nullif(v_watch ->> 'payment_method', ''),
-        cost_memo = nullif(v_watch ->> 'cost_memo', ''),
-        refund_amount = (v_watch ->> 'refund_amount')::numeric,
-        refund_status = coalesce(nullif(v_watch ->> 'refund_status', ''), 'none')
+        watch_status = case when v_watch ? 'watch_status' then v_watch ->> 'watch_status' else watch_status end,
+        cheer_team_id = case when v_watch ? 'cheer_team_id' then v_watch ->> 'cheer_team_id' else cheer_team_id end,
+        companions = case when v_watch ? 'companions' then nullif(v_watch ->> 'companions', '') else companions end,
+        watch_memo = case when v_watch ? 'watch_memo' then nullif(v_watch ->> 'watch_memo', '') else watch_memo end,
+        total_price = case when v_watch ? 'total_price' then (v_watch ->> 'total_price')::numeric else total_price end,
+        my_expense = case when v_watch ? 'my_expense' then (v_watch ->> 'my_expense')::numeric else my_expense end,
+        payment_date = case when v_watch ? 'payment_date' then nullif(v_watch ->> 'payment_date', '')::date else payment_date end,
+        payment_destination = case when v_watch ? 'payment_destination' then nullif(v_watch ->> 'payment_destination', '') else payment_destination end,
+        payment_method = case when v_watch ? 'payment_method' then nullif(v_watch ->> 'payment_method', '') else payment_method end,
+        cost_memo = case when v_watch ? 'cost_memo' then nullif(v_watch ->> 'cost_memo', '') else cost_memo end,
+        refund_amount = case when v_watch ? 'refund_amount' then (v_watch ->> 'refund_amount')::numeric else refund_amount end,
+        refund_status = case when v_watch ? 'refund_status' then v_watch ->> 'refund_status' else refund_status end
       where id = v_watch_id and owner_id = v_owner_id;
     end if;
   end if;
@@ -196,10 +256,29 @@ begin
 
   if coalesce((v_replace ->> 'ticket')::boolean, false) then
     v_value := p_payload -> 'ticket';
+    if jsonb_typeof(v_value) = 'null' then
+      raise exception using errcode = '22023', message = 'ticket must be an object; use ticket.id for explicit deletion';
+    end if;
     if jsonb_typeof(v_value) = 'object' then
-      select id into v_ticket_id from public.tickets
-      where match_id = v_match_id and owner_id = v_owner_id
-      for update;
+      select count(*) into v_ticket_count
+      from public.tickets where match_id = v_match_id and owner_id = v_owner_id;
+      if v_ticket_count = 1 then
+        select id into v_ticket_id from public.tickets
+        where match_id = v_match_id and owner_id = v_owner_id
+        for update;
+      end if;
+      if v_ticket_count > 1 and nullif(v_value ->> 'id', '') is null then
+        raise exception using errcode = '22023', message = 'ticket.id is required when multiple tickets exist';
+      end if;
+      if nullif(v_value ->> 'id', '') is not null then
+        v_ticket_id := (v_value ->> 'id')::uuid;
+        if not exists (
+          select 1 from public.tickets
+          where id = v_ticket_id and match_id = v_match_id and owner_id = v_owner_id
+        ) then
+          raise exception using errcode = '42501', message = 'ticket does not belong to this match';
+        end if;
+      end if;
       if v_ticket_id is null then
         insert into public.tickets (
           owner_id, match_id, status, release_date, purchase_date, issue_date,
@@ -229,7 +308,12 @@ begin
         where id = v_ticket_id and owner_id = v_owner_id;
       end if;
     elsif p_payload ? 'ticket' then
-      delete from public.tickets where match_id = v_match_id and owner_id = v_owner_id;
+      if nullif(p_payload #>> '{ticket,id}', '') is null then
+        raise exception using errcode = '22023', message = 'ticket.id is required for explicit ticket deletion';
+      end if;
+      delete from public.tickets
+      where id = (p_payload #>> '{ticket,id}')::uuid
+        and match_id = v_match_id and owner_id = v_owner_id;
     end if;
   end if;
 
@@ -241,15 +325,16 @@ begin
     ) loop
       v_home_value := p_payload #> array['innings', 'home', (v_index - 1)::text];
       v_away_value := p_payload #> array['innings', 'away', (v_index - 1)::text];
-      if v_home_value is not null or v_away_value is not null then
+      if v_home_value is not null and jsonb_typeof(v_home_value) <> 'null' then
         insert into public.match_inning_scores (match_id, inning_number, side, runs, is_not_played)
-        values
-          (v_match_id, v_index, 'home',
-           case when v_home_value = '"X"' then null else nullif(v_home_value #>> '{}', '')::integer end,
-           v_home_value = '"X"'),
-          (v_match_id, v_index, 'away',
-           case when v_away_value = '"X"' then null else nullif(v_away_value #>> '{}', '')::integer end,
-           false);
+        values (v_match_id, v_index, 'home',
+          case when v_home_value = '"X"' then null else (v_home_value #>> '{}')::integer end,
+          v_home_value = '"X"');
+      end if;
+      if v_away_value is not null and jsonb_typeof(v_away_value) <> 'null' then
+        insert into public.match_inning_scores (match_id, inning_number, side, runs, is_not_played)
+        values (v_match_id, v_index, 'away',
+          (v_away_value #>> '{}')::integer, false);
       end if;
     end loop;
     insert into public.match_team_totals (match_id, side, hits, errors)
@@ -319,3 +404,5 @@ $function$;
 
 revoke execute on function public.save_match_record(jsonb) from public, anon;
 grant execute on function public.save_match_record(jsonb) to authenticated;
+
+commit;
