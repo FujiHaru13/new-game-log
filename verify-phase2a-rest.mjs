@@ -59,11 +59,30 @@ export function isConcurrencyConflict(responseOrError) {
     .join(' ')
     .toLowerCase();
   return error.code === '40001'
-    || response?.status === 409
-    || error.status === 409
     || text.includes('40001')
     || text.includes('match was modified by another session')
     || text.includes('serialization failure');
+}
+
+function conflictPayload(ids) {
+  return {
+    match: {
+      id: ids.match,
+      match_date: '2099-01-02',
+      date_unknown: false,
+      home_team_id: 'dragons',
+      away_team_id: 'giants',
+      stadium_id: 'vantelin_dome',
+      match_type: 'official',
+      match_status: 'scheduled',
+      notes: 'conflict baseline',
+    },
+    watch: { watch_status: 'scheduled', cheer_team_id: 'dragons' },
+    replace: {
+      categories: false, seat: false, ticket: false, innings: false,
+      pitchers: false, events: false, links: false, splits: false,
+    },
+  };
 }
 
 function makeClient(url, key) {
@@ -204,17 +223,103 @@ async function cleanup(authorized, ids, reporter) {
     return;
   }
   const checks = [
-    ['matches', 'id', ids.match],
-    ['watch_records', 'match_id', ids.match],
-    ['tickets', 'match_id', ids.match],
+    ['matches', 'id', 'id', ids.match],
+    ['watch_records', 'id', 'id', ids.watch],
+    ['tickets', 'id', 'match_id', ids.match],
+    ['match_inning_scores', 'match_id', 'match_id', ids.match],
+    ['match_pitchers', 'id', 'match_id', ids.match],
+    ['match_events', 'id', 'match_id', ids.match],
+    ['match_links', 'id', 'match_id', ids.match],
+    ['seats', 'watch_record_id', 'watch_record_id', ids.watch],
+    ['payment_splits', 'id', 'watch_record_id', ids.watch],
   ];
-  for (const [table, column, value] of checks) {
-    const result = await authorized.client.from(table).select('id').eq(column, value);
+  for (const [table, selectColumn, column, value] of checks) {
+    if (!value) {
+      reporter.inconclusive(`削除後${table}の不存在を確認できない（対象ID不明）`);
+      continue;
+    }
+    const result = await authorized.client.from(table).select(selectColumn).eq(column, value);
     if (result.error || result.data.length !== 0) {
       reporter.fail(`削除後も${table}が残存。match=${ids.match}`);
     } else {
       reporter.pass(`削除後${table}不存在確認`);
     }
+  }
+}
+
+async function runConflictScope(authorized, ids, reporter, env) {
+  if (!mutationMode(env)) {
+    reporter.skipped('競合専用RPC検証（読み取り専用。確認文字列が必要）');
+    return;
+  }
+  const created = await authorized.client.rpc('save_match_record', {
+    p_payload: conflictPayload(ids),
+  });
+  reporter.operations.add('RPC');
+  if (created.error || created.data?.ok !== true || created.data.match_id !== ids.match) {
+    reporter.inconclusive(`競合専用match作成失敗 (${errorText(created.error, created)})`);
+    return;
+  }
+  reporter.pass('競合専用match作成');
+  if (created.data.watch_record_id) ids.watch = created.data.watch_record_id;
+  try {
+      const first = await authorized.client.from('matches').select('updated_at, notes').eq('id', ids.match).single();
+      if (first.error || !first.data) {
+        reporter.inconclusive(`競合前updated_at取得失敗 (${errorText(first.error, first)})`);
+        return;
+      }
+      const update = await authorized.client.rpc('save_match_record', {
+        p_payload: {
+          match: {
+            id: ids.match,
+            expected_updated_at: first.data.updated_at,
+            notes: 'conflict updated baseline',
+          },
+        },
+      });
+      reporter.operations.add('RPC');
+      if (update.error) {
+        reporter.inconclusive(`競合前の正常更新失敗 (${errorText(update.error, update)})`);
+        return;
+      }
+      reporter.pass('競合前の正常更新');
+      const second = await authorized.client.from('matches').select('updated_at, notes').eq('id', ids.match).single();
+      if (second.error || !second.data) {
+        reporter.inconclusive(`更新後updated_at取得失敗 (${errorText(second.error, second)})`);
+        return;
+      }
+      if (first.data.updated_at === second.data.updated_at) {
+        reporter.inconclusive('更新前後のupdated_atが同一');
+        return;
+      }
+      reporter.pass('更新前後のupdated_atが異なる');
+      const conflict = await authorized.client.rpc('save_match_record', {
+        p_payload: {
+          match: {
+            id: ids.match,
+            expected_updated_at: first.data.updated_at,
+            notes: 'must not be applied',
+          },
+        },
+      });
+      reporter.operations.add('RPC');
+      console.log(`競合RPC応答: ${errorText(conflict.error, conflict)}`);
+      if (!conflict.error) {
+        reporter.fail('古いexpected_updated_atによる更新が成功');
+        return;
+      }
+      if (!isConcurrencyConflict(conflict)) {
+        reporter.inconclusive(`競合拒否のエラーが明確でない (${errorText(conflict.error, conflict)})`);
+        return;
+      }
+      const after = await authorized.client.from('matches').select('notes').eq('id', ids.match).single();
+      if (after.error || after.data.notes !== second.data.notes) {
+        reporter.fail('競合拒否後にnotesが変更された、または状態確認に失敗');
+        return;
+      }
+      reporter.pass(`競合拒否とデータ不変を確認 (${errorText(conflict.error, conflict)})`);
+    } finally {
+      await cleanup(authorized, ids, reporter);
   }
 }
 
@@ -262,6 +367,20 @@ export async function run(options = {}) {
   }
   const anonymous = makeClient(url, key);
   const authorized = await signIn(url, key, env.RLS_AUTHORIZED_EMAIL, env.RLS_AUTHORIZED_PASSWORD, '承認済みユーザー', reporter);
+  if (env.PHASE2A_TEST_SCOPE === 'conflict') {
+    if (!authorized) {
+      reporter.skipped('競合専用検証（承認済みセッションなし）');
+    } else {
+      const ids = createTestIds();
+      const idsAreSafe = await assertUnused(authorized, ids, reporter);
+      if (idsAreSafe) await runConflictScope(authorized, ids, reporter, env);
+      else reporter.skipped('競合専用検証（テストIDの安全確認未達）');
+    }
+    await authorized?.client.auth.signOut();
+    console.log(`PASS=${reporter.counts.PASS} FAIL=${reporter.counts.FAIL} INCONCLUSIVE=${reporter.counts.INCONCLUSIVE} SKIPPED=${reporter.counts.SKIPPED}`);
+    console.log(`実行操作: ${[...reporter.operations].join(', ')}`);
+    return reporter.counts;
+  }
   const unauthorized = await signIn(url, key, env.RLS_TEST_EMAIL, env.RLS_TEST_PASSWORD, '未承認ユーザー', reporter);
   const otherOwner = await signIn(url, key, env.RLS_OTHER_EMAIL, env.RLS_OTHER_PASSWORD, '他人所有ユーザー', reporter);
   if (!authorized) {
