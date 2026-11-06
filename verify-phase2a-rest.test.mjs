@@ -30,7 +30,7 @@ test('test IDs are unique UUIDs and seats use watch_record_id', () => {
 
 test('concurrency errors are recognized across PostgREST response shapes', () => {
   assert.equal(isConcurrencyConflict({ code: '40001' }), true);
-  assert.equal(isConcurrencyConflict({ status: 409, message: 'Conflict' }), true);
+  assert.equal(isConcurrencyConflict({ status: 409, error: { code: 'PGRST', message: 'Conflict' } }), true);
   assert.equal(isConcurrencyConflict({ status: 400, message: 'database error' }), false);
   assert.equal(isConcurrencyConflict({ code: 'P0001', message: 'match was modified by another session' }), true);
   assert.equal(isConcurrencyConflict({ code: '42501', status: 403 }), false);

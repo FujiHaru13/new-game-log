@@ -39,9 +39,9 @@ export function targetColumn(table) {
   return table === 'seats' ? 'watch_record_id' : 'id';
 }
 
-function errorText(error) {
+function errorText(error, response) {
   const code = error?.code || 'unknown';
-  const status = error?.status || 'unknown';
+  const status = response?.status ?? error?.status ?? 'unknown';
   const message = error?.message ? ` / ${error.message}` : '';
   return `${code} / HTTP ${status}${message}`;
 }
@@ -50,13 +50,16 @@ function permissionError(error) {
   return Boolean(error && (error.code === '42501' || error.status === 401 || error.status === 403));
 }
 
-export function isConcurrencyConflict(error) {
+export function isConcurrencyConflict(responseOrError) {
+  const response = responseOrError?.error ? responseOrError : undefined;
+  const error = response?.error || responseOrError;
   if (!error) return false;
   const text = [error.code, error.message, error.details, error.hint]
     .filter((value) => value !== undefined && value !== null)
     .join(' ')
     .toLowerCase();
   return error.code === '40001'
+    || response?.status === 409
     || error.status === 409
     || text.includes('40001')
     || text.includes('match was modified by another session')
@@ -303,15 +306,15 @@ export async function run(options = {}) {
             const conflictBefore = await authorized.client.from('matches').select('notes').eq('id', ids.match).single();
             const conflict = await authorized.client.rpc('save_match_record', { p_payload: { match: { id: ids.match, expected_updated_at: '2000-01-01T00:00:00Z', notes: 'must reject' } } });
             reporter.operations.add('RPC');
-            if (isConcurrencyConflict(conflict.error)) {
+            if (isConcurrencyConflict(conflict)) {
               const conflictAfter = await authorized.client.from('matches').select('notes').eq('id', ids.match).single();
               if (!conflictBefore.error && !conflictAfter.error && conflictBefore.data.notes === conflictAfter.data.notes) {
-                reporter.pass(`競合検出で更新拒否（${errorText(conflict.error)}）`);
+                reporter.pass(`競合検出で更新拒否（${errorText(conflict.error, conflict)}）`);
               } else {
                 reporter.fail('競合拒否後に対象データが変更された、または状態確認不能');
               }
             }
-            else if (conflict.error) reporter.inconclusive(`競合拒否のエラー確認不能 (${errorText(conflict.error)})`);
+            else if (conflict.error) reporter.inconclusive(`競合拒否のエラー確認不能 (${errorText(conflict.error, conflict)})`);
             else reporter.fail('古いupdated_atで更新が成功');
             const invalid = await authorized.client.rpc('save_match_record', { p_payload: { match: { id: ids.match, expected_updated_at: afterTicket.data.updated_at, notes: 'must rollback' }, categories: [{ id: 'does-not-exist' }], replace: { categories: true } } });
             reporter.operations.add('RPC');
