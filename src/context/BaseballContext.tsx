@@ -14,6 +14,7 @@ import { getSupabaseConnection, saveSupabaseConnection, SupabaseConnection } fro
 import { deleteMatchRecord, SavedRecordRefreshRequiredError, isAtomicSaveEnabled, loadRecordTables, saveMatchRecordWithPhase2, toMatchRecord } from '../lib/supabaseRecords';
 import { Session, User } from '@supabase/supabase-js';
 import { createTicketOnlySaveController, isV2TicketWriteEnabled } from '../lib/atomic/ticketSaveBridge';
+import { createFullFormV2SaveController, isV2FullFormWriteEnabled } from '../lib/atomic/fullFormSaveBridge';
 import type { TicketEditorDraft } from '../lib/atomic/ticketEditorDraft';
 import type { V2SaveController, SavePhase } from '../lib/atomic/adapter';
 
@@ -54,6 +55,8 @@ interface BaseballContextType {
   addRecord: (record: Omit<MatchRecord, 'id' | 'createdAt' | 'updatedAt' | 'tickets'>) => Promise<MatchRecord>;
   updateRecord: (record: MatchRecord) => Promise<void>;
   v2TicketWriteEnabled: boolean;
+  v2FullFormWriteEnabled: boolean;
+  saveFullFormV2: (original: MatchRecord, edited: MatchRecord, draft: TicketEditorDraft) => Promise<{phase: SavePhase; message?: string}>;
   saveTicketEditsV2: (record: MatchRecord, draft: TicketEditorDraft) => Promise<{phase: SavePhase; message?: string}>;
   refreshTicketEditsV2: () => Promise<{phase: SavePhase; message?: string}>;
   deleteRecord: (id: string) => Promise<void>;
@@ -430,6 +433,18 @@ export const BaseballProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     else if (result.phase === 'rejected' || result.phase === 'conflict') ticketV2Pending.current = null;
     return presentTicketState(result.phase, result.issue?.message);
   };
+  const saveFullFormV2 = async (original: MatchRecord, edited: MatchRecord, draft: TicketEditorDraft) => {
+    if (!isV2FullFormWriteEnabled() || !connection || !user || !isAuthorized) {
+      throw new Error('フォーム全体のAtomic RPC v2保存は利用できません。変更は送信されていません。');
+    }
+    if (ticketV2Pending.current) throw new Error('以前の保存結果を確認中です。再送信はできません。');
+    const controller = await createFullFormV2SaveController(connection.client, user.id, original, edited, draft);
+    ticketV2Pending.current = {matchId:original.id, controller};
+    const result = await controller.save();
+    if (result.phase === 'completed') acceptTicketSnapshot(controller);
+    else if (result.phase === 'rejected' || result.phase === 'conflict') ticketV2Pending.current = null;
+    return presentTicketState(result.phase, result.issue?.message);
+  };
   const refreshTicketEditsV2 = async () => {
     const pending = ticketV2Pending.current;
     if (!pending) throw new Error('確認待ちの保存はありません。');
@@ -580,6 +595,8 @@ export const BaseballProvider: React.FC<{ children: React.ReactNode }> = ({ chil
         addRecord,
         updateRecord,
         v2TicketWriteEnabled: isV2TicketWriteEnabled(),
+        v2FullFormWriteEnabled: isV2FullFormWriteEnabled(),
+        saveFullFormV2,
         saveTicketEditsV2,
         refreshTicketEditsV2,
         deleteRecord,

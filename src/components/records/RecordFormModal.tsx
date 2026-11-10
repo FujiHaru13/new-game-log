@@ -7,6 +7,7 @@ import { SavedRecordRefreshRequiredError } from '../../lib/supabaseRecords';
 import { editRecordTicket } from '../../utils/ticketRecords';
 import { MultiTicketEditor } from './MultiTicketEditor';
 import { beginTicketEditor, ticketEditorChanges, ticketEditorHasChanges } from '../../lib/atomic/ticketEditorDraft';
+import { assembleFullFormEdit } from '../../lib/atomic/fullFormSaveBridge';
 
 import React, { useState, useEffect, useRef } from 'react';
 import { useBaseball } from '../../context/BaseballContext';
@@ -44,7 +45,7 @@ export const RecordFormModal: React.FC<RecordFormModalProps> = ({
   onClose,
   initialRecord,
 }) => {
-  const { addRecord, updateRecord, stadiums, v2TicketWriteEnabled, saveTicketEditsV2, refreshTicketEditsV2 } = useBaseball();
+  const { addRecord, updateRecord, stadiums, v2TicketWriteEnabled, v2FullFormWriteEnabled, saveTicketEditsV2, saveFullFormV2, refreshTicketEditsV2 } = useBaseball();
 
   // Active step in the form wizard (1: 試合, 2: 観戦, 3: 座席, 4: 費用, 5: 詳細スコア)
   const [activeStep, setActiveStep] = useState<number>(1);
@@ -342,13 +343,13 @@ export const RecordFormModal: React.FC<RecordFormModalProps> = ({
       submitInProgress.current = false;
       return;
     }
-    if (multiTicketDirty) {
+    if (multiTicketDirty && !(initialRecord && v2FullFormWriteEnabled)) {
       setErrorMessage('複数チケットの変更は、Atomic RPC v2への画面接続が完了するまで確定できません。入力内容を保持しています。');
       setActiveStep(4);
       submitInProgress.current = false;
       return;
     }
-    if ((initialRecord?.tickets.length || 0) > 1) {
+    if ((initialRecord?.tickets.length || 0) > 1 && !v2FullFormWriteEnabled) {
       setErrorMessage('複数のチケットが登録されているため、現在のフォームから安全に編集できません。');
       submitInProgress.current = false;
       return;
@@ -473,6 +474,23 @@ export const RecordFormModal: React.FC<RecordFormModalProps> = ({
 
     setIsSubmitting(true);
     try {
+      if (initialRecord && v2FullFormWriteEnabled) {
+        const { record: candidate, useMultiDraft } = assembleFullFormEdit(initialRecord, recordPayload, multiTicketTouched);
+        const draft = useMultiDraft ? multiTicketDraft : {
+          ...multiTicketDraft,
+          rows: candidate.tickets.map(ticket => ({ ...ticket })),
+        };
+        const result = await saveFullFormV2(initialRecord, candidate, draft);
+        if (result.phase === 'partial_or_unknown' || result.phase === 'saved_sync_failed') saveNeedsRefresh.current = true;
+        setV2TicketPhase(result.phase);
+        if (result.phase === 'completed') onClose();
+        else setErrorMessage(result.phase === 'partial_or_unknown'
+          ? '保存結果が不明です。再送信せず、読取で確認してください。'
+          : result.phase === 'saved_sync_failed'
+          ? '保存は完了しましたが同期できません。再送信せず、読取で確認してください。'
+          : result.message || '保存できませんでした。');
+        return;
+      }
       if (initialRecord) {
         await updateRecord(editRecordTicket({
           ...recordPayload,
@@ -558,6 +576,12 @@ export const RecordFormModal: React.FC<RecordFormModalProps> = ({
           </div>
         )}
 
+        {v2FullFormWriteEnabled && (v2TicketPhase === 'partial_or_unknown' || v2TicketPhase === 'saved_sync_failed') && (
+          <div className="mx-6 mt-3 rounded-xl border border-amber-400 p-3 text-xs">
+            <p className="mb-2">保存結果を確認するまでは再保存しないでください。ページを再読み込みすると確認待ちの状態が失われるため、閉じずに読取再確認してください。</p>
+            <button type="button" disabled={isSubmitting} onClick={refreshTicketsOnlyV2} className="rounded-lg border border-amber-500 px-3 py-2 disabled:opacity-50">書き込まずに再確認</button>
+          </div>
+        )}
         {/* Form Body */}
         <form onSubmit={handleSubmit} className="flex-1 overflow-y-auto p-6 space-y-6">
           {/* STEP 1: 試合情報 */}
@@ -1050,7 +1074,7 @@ export const RecordFormModal: React.FC<RecordFormModalProps> = ({
                 </button>
               </div>
               {showMultiTicketEditor && <MultiTicketEditor draft={multiTicketDraft} canSave={Boolean(initialRecord && v2TicketWriteEnabled)} onChange={draft => { setMultiTicketDraft(draft); setMultiTicketTouched(true); }} />}
-              {showMultiTicketEditor && initialRecord && v2TicketWriteEnabled && (
+              {showMultiTicketEditor && initialRecord && v2TicketWriteEnabled && !v2FullFormWriteEnabled && (
                 <div className="rounded-xl border border-amber-400 p-3 space-y-2">
                   <p className="text-xs">これはチケットだけのv2保存です。他のフォーム項目は保存されません。未適用のDBでは実行しないでください。</p>
                   <button type="button" disabled={isSubmitting || v2TicketPhase === 'partial_or_unknown' || v2TicketPhase === 'saved_sync_failed'}
