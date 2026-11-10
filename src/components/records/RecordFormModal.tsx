@@ -5,6 +5,8 @@
 
 import { SavedRecordRefreshRequiredError } from '../../lib/supabaseRecords';
 import { editRecordTicket } from '../../utils/ticketRecords';
+import { MultiTicketEditor } from './MultiTicketEditor';
+import { beginTicketEditor, ticketEditorChanges, ticketEditorHasChanges } from '../../lib/atomic/ticketEditorDraft';
 
 import React, { useState, useEffect, useRef } from 'react';
 import { useBaseball } from '../../context/BaseballContext';
@@ -102,6 +104,9 @@ export const RecordFormModal: React.FC<RecordFormModalProps> = ({
   const [issueDate, setIssueDate] = useState('');
   const [ticketType, setTicketType] = useState('QR電子チケット');
   const [ticketNotes, setTicketNotes] = useState('');
+  const [multiTicketDraft, setMultiTicketDraft] = useState(() => beginTicketEditor(initialRecord?.tickets || []));
+  const [showMultiTicketEditor, setShowMultiTicketEditor] = useState((initialRecord?.tickets.length || 0) > 1);
+  const [multiTicketTouched, setMultiTicketTouched] = useState(false);
 
   // Batter & Pitchers info
   const [homeStarter, setHomeStarter] = useState('');
@@ -123,6 +128,9 @@ export const RecordFormModal: React.FC<RecordFormModalProps> = ({
 
   // Initialize or reset form when initialRecord changes
   useEffect(() => {
+    setMultiTicketDraft(beginTicketEditor(initialRecord?.tickets || []));
+    setShowMultiTicketEditor((initialRecord?.tickets.length || 0) > 1);
+    setMultiTicketTouched(false);
     if (initialRecord) {
       setDate(initialRecord.date || '');
       setTime(initialRecord.time || '');
@@ -286,6 +294,21 @@ export const RecordFormModal: React.FC<RecordFormModalProps> = ({
     submitInProgress.current = true;
     setErrorMessage(null);
 
+    let multiTicketDirty = false;
+    try {
+      if (multiTicketTouched) multiTicketDirty = ticketEditorHasChanges(ticketEditorChanges(multiTicketDraft));
+    } catch (error) {
+      setErrorMessage(error instanceof Error ? error.message : 'チケットの入力に問題があります。');
+      setActiveStep(4);
+      submitInProgress.current = false;
+      return;
+    }
+    if (multiTicketDirty) {
+      setErrorMessage('複数チケットの変更は、Atomic RPC v2への画面接続が完了するまで確定できません。入力内容を保持しています。');
+      setActiveStep(4);
+      submitInProgress.current = false;
+      return;
+    }
     if ((initialRecord?.tickets.length || 0) > 1) {
       setErrorMessage('複数のチケットが登録されているため、現在のフォームから安全に編集できません。');
       submitInProgress.current = false;
@@ -981,6 +1004,13 @@ export const RecordFormModal: React.FC<RecordFormModalProps> = ({
           {/* STEP 4: 費用・チケット情報 */}
           {activeStep === 4 && (
             <div className="space-y-4 animate-in fade-in duration-150 text-xs">
+              <div className="flex items-center justify-between gap-2">
+                <p className="text-slate-600 dark:text-slate-300">複数チケット：{multiTicketDraft.rows.length}件</p>
+                <button type="button" className="text-blue-700 dark:text-blue-300 underline font-semibold" onClick={() => setShowMultiTicketEditor(value => !value)}>
+                  {showMultiTicketEditor ? '複数チケット編集準備を閉じる' : '複数チケット編集準備を開く'}
+                </button>
+              </div>
+              {showMultiTicketEditor && <MultiTicketEditor draft={multiTicketDraft} onChange={draft => { setMultiTicketDraft(draft); setMultiTicketTouched(true); }} />}
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 {/* チケット総額 */}
                 <div>
