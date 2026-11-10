@@ -44,7 +44,7 @@ export const RecordFormModal: React.FC<RecordFormModalProps> = ({
   onClose,
   initialRecord,
 }) => {
-  const { addRecord, updateRecord, stadiums } = useBaseball();
+  const { addRecord, updateRecord, stadiums, v2TicketWriteEnabled, saveTicketEditsV2, refreshTicketEditsV2 } = useBaseball();
 
   // Active step in the form wizard (1: 試合, 2: 観戦, 3: 座席, 4: 費用, 5: 詳細スコア)
   const [activeStep, setActiveStep] = useState<number>(1);
@@ -107,6 +107,7 @@ export const RecordFormModal: React.FC<RecordFormModalProps> = ({
   const [multiTicketDraft, setMultiTicketDraft] = useState(() => beginTicketEditor(initialRecord?.tickets || []));
   const [showMultiTicketEditor, setShowMultiTicketEditor] = useState((initialRecord?.tickets.length || 0) > 1);
   const [multiTicketTouched, setMultiTicketTouched] = useState(false);
+  const [v2TicketPhase, setV2TicketPhase] = useState<string | null>(null);
 
   // Batter & Pitchers info
   const [homeStarter, setHomeStarter] = useState('');
@@ -131,6 +132,7 @@ export const RecordFormModal: React.FC<RecordFormModalProps> = ({
     setMultiTicketDraft(beginTicketEditor(initialRecord?.tickets || []));
     setShowMultiTicketEditor((initialRecord?.tickets.length || 0) > 1);
     setMultiTicketTouched(false);
+    setV2TicketPhase(null);
     if (initialRecord) {
       setDate(initialRecord.date || '');
       setTime(initialRecord.time || '');
@@ -285,6 +287,43 @@ export const RecordFormModal: React.FC<RecordFormModalProps> = ({
 
   const updateSplit = (id: string, field: keyof SplitPayment, value: any) => {
     setSplits(prev => prev.map(s => s.id === id ? { ...s, [field]: value } : s));
+  };
+
+  const saveTicketsOnlyV2 = async () => {
+    if (!initialRecord || isSubmitting || submitInProgress.current) return;
+    submitInProgress.current = true;
+    setIsSubmitting(true);
+    setErrorMessage(null);
+    try {
+      const result = await saveTicketEditsV2(initialRecord, multiTicketDraft);
+      setV2TicketPhase(result.phase);
+      if (result.phase === 'completed') onClose();
+      else setErrorMessage(result.phase === 'partial_or_unknown'
+        ? '保存結果が不明です。再送信せず、読み取りで確認してください。' :
+        result.phase === 'saved_sync_failed'
+        ? '保存自体は成功しました。再送信せず、読み取りで同期してください。' :
+        result.message || '保存できませんでした。');
+    } catch (error) {
+      setErrorMessage(error instanceof Error ? error.message : 'v2保存処理を準備できませんでした。');
+    } finally {
+      setIsSubmitting(false);
+      submitInProgress.current = false;
+    }
+  };
+
+  const refreshTicketsOnlyV2 = async () => {
+    if (isSubmitting) return;
+    setIsSubmitting(true);
+    try {
+      const result = await refreshTicketEditsV2();
+      setV2TicketPhase(result.phase);
+      if (result.phase === 'completed') onClose();
+      else setErrorMessage(result.phase === 'partial_or_unknown'
+        ? '読取結果だけでは保存の成否を断定できません。再送信はしないでください。'
+        : result.message || '保存済みデータとの同期を確認できませんでした。');
+    } catch (error) {
+      setErrorMessage(error instanceof Error ? error.message : '再確認に失敗しました。');
+    } finally { setIsSubmitting(false); }
   };
 
   // Submit Handler
@@ -1010,7 +1049,16 @@ export const RecordFormModal: React.FC<RecordFormModalProps> = ({
                   {showMultiTicketEditor ? '複数チケット編集準備を閉じる' : '複数チケット編集準備を開く'}
                 </button>
               </div>
-              {showMultiTicketEditor && <MultiTicketEditor draft={multiTicketDraft} onChange={draft => { setMultiTicketDraft(draft); setMultiTicketTouched(true); }} />}
+              {showMultiTicketEditor && <MultiTicketEditor draft={multiTicketDraft} canSave={Boolean(initialRecord && v2TicketWriteEnabled)} onChange={draft => { setMultiTicketDraft(draft); setMultiTicketTouched(true); }} />}
+              {showMultiTicketEditor && initialRecord && v2TicketWriteEnabled && (
+                <div className="rounded-xl border border-amber-400 p-3 space-y-2">
+                  <p className="text-xs">これはチケットだけのv2保存です。他のフォーム項目は保存されません。未適用のDBでは実行しないでください。</p>
+                  <button type="button" disabled={isSubmitting || v2TicketPhase === 'partial_or_unknown' || v2TicketPhase === 'saved_sync_failed'}
+                    onClick={saveTicketsOnlyV2} className="rounded-lg bg-blue-800 text-white px-3 py-2 disabled:opacity-50">チケット変更だけをAtomic v2で保存</button>
+                  {(v2TicketPhase === 'partial_or_unknown' || v2TicketPhase === 'saved_sync_failed') &&
+                    <button type="button" disabled={isSubmitting} onClick={refreshTicketsOnlyV2} className="ml-2 rounded-lg border border-amber-500 px-3 py-2">書き込まずに再確認</button>}
+                </div>
+              )}
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 {/* チケット総額 */}
                 <div>

@@ -14,7 +14,7 @@ const statuses: Array<{ value: TicketStatus; label: string }> = [
 ];
 const inputClass = 'w-full rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 px-2.5 py-2 text-sm';
 
-export function MultiTicketEditor({ draft, onChange }: { draft: TicketEditorDraft; onChange: (draft: TicketEditorDraft) => void }) {
+export function MultiTicketEditor({ draft, onChange, canSave = false }: { draft: TicketEditorDraft; onChange: (draft: TicketEditorDraft) => void; canSave?: boolean }) {
   const summary = useMemo(() => {
     try { return { changes: ticketEditorChanges(draft), error: null as string | null }; }
     catch (error) { return { changes: null, error: error instanceof Error ? error.message : 'チケット入力が不正です' }; }
@@ -27,7 +27,7 @@ export function MultiTicketEditor({ draft, onChange }: { draft: TicketEditorDraf
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div>
           <h4 className="font-bold text-slate-900 dark:text-white">チケット一覧・編集準備</h4>
-          <p className="text-xs text-slate-600 dark:text-slate-300">各行の内容は一時保存されません。クラウドv2未接続のため、この画面からはまだ確定できません。</p>
+          <p className="text-xs text-slate-600 dark:text-slate-300">各行の内容は一時保存されません。{canSave ? '通常の試合保存とは別に、v2でチケットだけを保存します。' : 'クラウドv2未接続のため、この画面からはまだ確定できません。'}</p>
         </div>
         <button type="button" className="rounded-lg bg-blue-800 px-3 py-2 text-xs font-bold text-white flex items-center gap-1" onClick={() => onChange(addTicketRow(draft))}>
           <Plus size={14} /> チケット追加
@@ -82,7 +82,7 @@ export function MultiTicketEditor({ draft, onChange }: { draft: TicketEditorDraf
       {summary.error ? <p role="alert" className="text-sm font-semibold text-red-700">入力内容を確認してください：{summary.error}</p> : (
         <p className="text-sm font-semibold">変更予定：追加 {summary.changes!.create.length}件・更新 {summary.changes!.update.length}件・削除 {summary.changes!.delete.length}件</p>
       )}
-      {dirty && <p role="status" className="rounded-lg bg-amber-50 dark:bg-amber-950/30 text-amber-900 dark:text-amber-200 p-2 text-xs">複数チケットの変更はv2保存経路への画面接続後に確定できます。現時点では誤保存防止のため、この編集内容を含む保存は拒否します。</p>}
+      {dirty && <p role="status" className="rounded-lg bg-amber-50 dark:bg-amber-950/30 text-amber-900 dark:text-amber-200 p-2 text-xs">{canSave ? '通常の保存ボタンではチケット変更を確定できません。専用v2ボタンを使用してください。' : '複数チケットの変更はv2保存経路への画面接続後に確定できます。現時点では誤保存防止のため、この編集内容を含む保存は拒否します。'}</p>}
     </section>
   );
 }

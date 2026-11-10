@@ -13,6 +13,9 @@ import { getMatchResult } from '../utils/baseballUtils';
 import { getSupabaseConnection, saveSupabaseConnection, SupabaseConnection } from '../lib/supabase';
 import { deleteMatchRecord, SavedRecordRefreshRequiredError, isAtomicSaveEnabled, loadRecordTables, saveMatchRecordWithPhase2, toMatchRecord } from '../lib/supabaseRecords';
 import { Session, User } from '@supabase/supabase-js';
+import { createTicketOnlySaveController, isV2TicketWriteEnabled } from '../lib/atomic/ticketSaveBridge';
+import type { TicketEditorDraft } from '../lib/atomic/ticketEditorDraft';
+import type { V2SaveController, SavePhase } from '../lib/atomic/adapter';
 
 const STORAGE_KEY = 'baseball_watch_log_data_v3_excel';
 const THEME_KEY = 'baseball_watch_log_theme';
@@ -50,6 +53,9 @@ interface BaseballContextType {
   // 操作
   addRecord: (record: Omit<MatchRecord, 'id' | 'createdAt' | 'updatedAt' | 'tickets'>) => Promise<MatchRecord>;
   updateRecord: (record: MatchRecord) => Promise<void>;
+  v2TicketWriteEnabled: boolean;
+  saveTicketEditsV2: (record: MatchRecord, draft: TicketEditorDraft) => Promise<{phase: SavePhase; message?: string}>;
+  refreshTicketEditsV2: () => Promise<{phase: SavePhase; message?: string}>;
   deleteRecord: (id: string) => Promise<void>;
   resetToDemoData: () => void;
   importRecords: (incoming: MatchRecord[], mode: 'merge' | 'replace') => { added: number; updated: number };
@@ -398,6 +404,41 @@ export const BaseballProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     if (refreshRequired) throw new SavedRecordRefreshRequiredError();
   };
 
+  // Keep an ambiguous or committed-but-not-synced intent alive. Never reconstruct
+  // a new controller to retry writes or discard an unknown outcome automatically.
+  const ticketV2Pending = useRef<{ matchId: string; controller: V2SaveController } | null>(null);
+  const presentTicketState = (phase: SavePhase, message?: string) => ({phase, message});
+  const acceptTicketSnapshot = (controller: V2SaveController) => {
+    const state = controller.getState();
+    if (state.phase !== 'completed' || !state.snapshot) return;
+    if (state.snapshot.record.matchStatus === 'postponed') {
+      throw new Error('延期状態の試合は現行画面に安全に反映できません。再取得が必要です。');
+    }
+    const restored = normalizeRecordTickets(state.snapshot.record as MatchRecord);
+    setRecords(previous => previous.map(item => item.id === restored.id ? restored : item));
+    ticketV2Pending.current = null;
+  };
+  const saveTicketEditsV2 = async (record: MatchRecord, draft: TicketEditorDraft) => {
+    if (!isV2TicketWriteEnabled() || !connection || !user || !isAuthorized) {
+      throw new Error('Atomic RPC v2保存は現在利用できません。変更は送信されていません。');
+    }
+    if (ticketV2Pending.current) throw new Error('以前の保存結果を確認中です。再送信はできません。');
+    const controller = await createTicketOnlySaveController(connection.client, user.id, record, draft);
+    ticketV2Pending.current = {matchId:record.id, controller};
+    const result = await controller.save();
+    if (result.phase === 'completed') acceptTicketSnapshot(controller);
+    else if (result.phase === 'rejected' || result.phase === 'conflict') ticketV2Pending.current = null;
+    return presentTicketState(result.phase, result.issue?.message);
+  };
+  const refreshTicketEditsV2 = async () => {
+    const pending = ticketV2Pending.current;
+    if (!pending) throw new Error('確認待ちの保存はありません。');
+    if (!connection || !user || !isAuthorized) throw new Error('認証状態が変わったため、再確認できません。');
+    const result = await pending.controller.refresh();
+    if (result.phase === 'completed') acceptTicketSnapshot(pending.controller);
+    return presentTicketState(result.phase, result.issue?.message);
+  };
+
   const deleteRecord = async (id: string): Promise<void> => {
     if (connection && user) await deleteMatchRecord(connection.client, user.id, id);
     setRecords(prev => prev.filter(r => r.id !== id));
@@ -538,6 +579,9 @@ export const BaseballProvider: React.FC<{ children: React.ReactNode }> = ({ chil
         isDarkMode,
         addRecord,
         updateRecord,
+        v2TicketWriteEnabled: isV2TicketWriteEnabled(),
+        saveTicketEditsV2,
+        refreshTicketEditsV2,
         deleteRecord,
         resetToDemoData,
         importRecords,
