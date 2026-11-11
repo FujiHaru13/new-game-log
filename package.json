@@ -9,7 +9,7 @@
     "test:rls": "node --test verify-rls-rest.test.mjs",
     "test:phase2a": "tsx --test phase2a-persistence.test.ts",
     "test:phase2a:rest": "node --test verify-phase2a-rest.test.mjs",
-    "test": "npm run test:rls && npm run test:phase2a && npm run test:phase2a:rest && npm run test:phase2b:delete && npm run test:atomic-adapter && npm run test:ticket-editor && npm run test:v2-ticket-bridge && npm run test:full-form-preflight && npm run test:full-form-v2-bridge",
+    "test": "npm run test:rls && npm run test:phase2a && npm run test:phase2a:rest && npm run test:phase2b:delete && npm run test:atomic-adapter && npm run test:ticket-editor && npm run test:v2-ticket-bridge && npm run test:full-form-preflight && npm run test:full-form-v2-bridge && npm run test:pending-save-guard",
     "preview": "vite preview",
     "clean": "rm -rf dist server.js",
     "lint": "tsc --noEmit",
@@ -19,7 +19,8 @@
     "test:ticket-editor": "tsx --test ticket-editor-draft.test.ts",
     "test:v2-ticket-bridge": "tsx --test ticket-v2-bridge.test.ts",
     "test:full-form-preflight": "tsx --test full-form-preflight.test.ts",
-    "test:full-form-v2-bridge": "tsx --test full-form-v2-bridge.test.ts"
+    "test:full-form-v2-bridge": "tsx --test full-form-v2-bridge.test.ts",
+    "test:pending-save-guard": "tsx --test pending-save-guard.test.ts"
   },
   "dependencies": {
     "@google/genai": "^2.4.0",

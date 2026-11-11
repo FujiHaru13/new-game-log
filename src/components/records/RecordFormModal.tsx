@@ -45,7 +45,7 @@ export const RecordFormModal: React.FC<RecordFormModalProps> = ({
   onClose,
   initialRecord,
 }) => {
-  const { addRecord, updateRecord, stadiums, v2TicketWriteEnabled, v2FullFormWriteEnabled, saveTicketEditsV2, saveFullFormV2, refreshTicketEditsV2 } = useBaseball();
+  const { addRecord, updateRecord, stadiums, v2TicketWriteEnabled, v2FullFormWriteEnabled, saveTicketEditsV2, saveFullFormV2, refreshTicketEditsV2, getV2PendingSaveNotice } = useBaseball();
 
   // Active step in the form wizard (1: 試合, 2: 観戦, 3: 座席, 4: 費用, 5: 詳細スコア)
   const [activeStep, setActiveStep] = useState<number>(1);
@@ -562,6 +562,13 @@ export const RecordFormModal: React.FC<RecordFormModalProps> = ({
           ))}
         </div>
 
+        {initialRecord && getV2PendingSaveNotice(initialRecord.id) && (
+          <div role="alert" className="mx-6 mt-4 rounded-xl border border-amber-500 bg-amber-50 p-3 text-xs text-amber-900 dark:bg-amber-950/40 dark:text-amber-200">
+            <p className="font-semibold">保存確認待ちの操作があります</p>
+            <p>{getV2PendingSaveNotice(initialRecord.id)}</p>
+            <p>この画面から保存・削除を再実行しないでください。読み取ったDB状態だけでは以前の送信結果を確定できません。</p>
+          </div>
+        )}
         {/* Error Alert */}
         {errorMessage && (
           <div className="mx-6 mt-4 p-3 rounded-xl bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-800 text-rose-700 dark:text-rose-300 text-xs flex items-center gap-2">
@@ -578,7 +585,7 @@ export const RecordFormModal: React.FC<RecordFormModalProps> = ({
 
         {v2FullFormWriteEnabled && (v2TicketPhase === 'partial_or_unknown' || v2TicketPhase === 'saved_sync_failed') && (
           <div className="mx-6 mt-3 rounded-xl border border-amber-400 p-3 text-xs">
-            <p className="mb-2">保存結果を確認するまでは再保存しないでください。ページを再読み込みすると確認待ちの状態が失われるため、閉じずに読取再確認してください。</p>
+            <p className="mb-2">保存結果を確認するまでは再保存しないでください。再読み込み後も再送信防止の記録は残りますが、元の確認用コントローラーは復元されません。可能ならこの画面で読み取り再確認してください。</p>
             <button type="button" disabled={isSubmitting} onClick={refreshTicketsOnlyV2} className="rounded-lg border border-amber-500 px-3 py-2 disabled:opacity-50">書き込まずに再確認</button>
           </div>
         )}

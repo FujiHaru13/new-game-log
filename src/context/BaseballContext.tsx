@@ -17,6 +17,7 @@ import { createTicketOnlySaveController, isV2TicketWriteEnabled } from '../lib/a
 import { createFullFormV2SaveController, isV2FullFormWriteEnabled } from '../lib/atomic/fullFormSaveBridge';
 import type { TicketEditorDraft } from '../lib/atomic/ticketEditorDraft';
 import type { V2SaveController, SavePhase } from '../lib/atomic/adapter';
+import { assertNoPendingSave, beginPendingSave, clearConfirmedPendingSave, markPendingSave, readPendingSave, type PendingSaveMarker } from '../lib/atomic/pendingSaveGuard';
 
 const STORAGE_KEY = 'baseball_watch_log_data_v3_excel';
 const THEME_KEY = 'baseball_watch_log_theme';
@@ -59,6 +60,7 @@ interface BaseballContextType {
   saveFullFormV2: (original: MatchRecord, edited: MatchRecord, draft: TicketEditorDraft) => Promise<{phase: SavePhase; message?: string}>;
   saveTicketEditsV2: (record: MatchRecord, draft: TicketEditorDraft) => Promise<{phase: SavePhase; message?: string}>;
   refreshTicketEditsV2: () => Promise<{phase: SavePhase; message?: string}>;
+  getV2PendingSaveNotice: (matchId: string) => string | null;
   deleteRecord: (id: string) => Promise<void>;
   resetToDemoData: () => void;
   importRecords: (incoming: MatchRecord[], mode: 'merge' | 'replace') => { added: number; updated: number };
@@ -392,6 +394,7 @@ export const BaseballProvider: React.FC<{ children: React.ReactNode }> = ({ chil
 
   const updateRecord = async (updated: MatchRecord): Promise<void> => {
     if (!connection && localStorageBlocked.current) throw new Error('保存済みデータが不正なため上書きを停止しています。元データを確認してください。');
+    if (connection && user) assertNoPendingSave(user.id, updated.id);
     updated = normalizeRecordTickets(updated);
     if (updated.tickets.length > 1) throw new Error('複数チケットがあるため保存できません');
     let refreshRequired = false;
@@ -409,7 +412,24 @@ export const BaseballProvider: React.FC<{ children: React.ReactNode }> = ({ chil
 
   // Keep an ambiguous or committed-but-not-synced intent alive. Never reconstruct
   // a new controller to retry writes or discard an unknown outcome automatically.
-  const ticketV2Pending = useRef<{ matchId: string; controller: V2SaveController } | null>(null);
+  const ticketV2Pending = useRef<{ matchId: string; controller: V2SaveController; marker: PendingSaveMarker } | null>(null);
+  const getV2PendingSaveNotice = (matchId: string): string | null => {
+    if (!user || !connection) return null;
+    try {
+      const marker = readPendingSave(user.id, matchId);
+      return marker ? `この試合には${marker.startedAt}開始の保存確認待ちがあります。ページを再読み込みしても再送信はできません。保存内容を読み取り、手動で照合してください。` : null;
+    } catch (error) { return error instanceof Error ? error.message : '保存確認記録を確認できません。'; }
+  };
+  const finishV2Pending = (phase: SavePhase) => {
+    const pending = ticketV2Pending.current;
+    if (!pending) return;
+    if (phase === 'completed' || phase === 'conflict' || phase === 'rejected') {
+      clearConfirmedPendingSave(pending.marker);
+      ticketV2Pending.current = null;
+    } else if (phase === 'partial_or_unknown' || phase === 'saved_syncing' || phase === 'saved_sync_failed') {
+      markPendingSave(pending.marker, phase);
+    }
+  };
   const presentTicketState = (phase: SavePhase, message?: string) => ({phase, message});
   const acceptTicketSnapshot = (controller: V2SaveController) => {
     const state = controller.getState();
@@ -419,18 +439,19 @@ export const BaseballProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     }
     const restored = normalizeRecordTickets(state.snapshot.record as MatchRecord);
     setRecords(previous => previous.map(item => item.id === restored.id ? restored : item));
-    ticketV2Pending.current = null;
   };
   const saveTicketEditsV2 = async (record: MatchRecord, draft: TicketEditorDraft) => {
     if (!isV2TicketWriteEnabled() || !connection || !user || !isAuthorized) {
       throw new Error('Atomic RPC v2保存は現在利用できません。変更は送信されていません。');
     }
     if (ticketV2Pending.current) throw new Error('以前の保存結果を確認中です。再送信はできません。');
+    assertNoPendingSave(user.id, record.id);
     const controller = await createTicketOnlySaveController(connection.client, user.id, record, draft);
-    ticketV2Pending.current = {matchId:record.id, controller};
+    const marker = beginPendingSave(user.id, record.id, 'ticket');
+    ticketV2Pending.current = {matchId:record.id, controller, marker};
     const result = await controller.save();
     if (result.phase === 'completed') acceptTicketSnapshot(controller);
-    else if (result.phase === 'rejected' || result.phase === 'conflict') ticketV2Pending.current = null;
+    finishV2Pending(result.phase);
     return presentTicketState(result.phase, result.issue?.message);
   };
   const saveFullFormV2 = async (original: MatchRecord, edited: MatchRecord, draft: TicketEditorDraft) => {
@@ -438,11 +459,13 @@ export const BaseballProvider: React.FC<{ children: React.ReactNode }> = ({ chil
       throw new Error('フォーム全体のAtomic RPC v2保存は利用できません。変更は送信されていません。');
     }
     if (ticketV2Pending.current) throw new Error('以前の保存結果を確認中です。再送信はできません。');
+    assertNoPendingSave(user.id, original.id);
     const controller = await createFullFormV2SaveController(connection.client, user.id, original, edited, draft);
-    ticketV2Pending.current = {matchId:original.id, controller};
+    const marker = beginPendingSave(user.id, original.id, 'full_form');
+    ticketV2Pending.current = {matchId:original.id, controller, marker};
     const result = await controller.save();
     if (result.phase === 'completed') acceptTicketSnapshot(controller);
-    else if (result.phase === 'rejected' || result.phase === 'conflict') ticketV2Pending.current = null;
+    finishV2Pending(result.phase);
     return presentTicketState(result.phase, result.issue?.message);
   };
   const refreshTicketEditsV2 = async () => {
@@ -451,11 +474,12 @@ export const BaseballProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     if (!connection || !user || !isAuthorized) throw new Error('認証状態が変わったため、再確認できません。');
     const result = await pending.controller.refresh();
     if (result.phase === 'completed') acceptTicketSnapshot(pending.controller);
+    finishV2Pending(result.phase);
     return presentTicketState(result.phase, result.issue?.message);
   };
 
   const deleteRecord = async (id: string): Promise<void> => {
-    if (connection && user) await deleteMatchRecord(connection.client, user.id, id);
+    if (connection && user) { assertNoPendingSave(user.id, id); await deleteMatchRecord(connection.client, user.id, id); }
     setRecords(prev => prev.filter(r => r.id !== id));
     if (selectedRecordId === id) {
       setSelectedRecordId(null);
@@ -599,6 +623,7 @@ export const BaseballProvider: React.FC<{ children: React.ReactNode }> = ({ chil
         saveFullFormV2,
         saveTicketEditsV2,
         refreshTicketEditsV2,
+        getV2PendingSaveNotice,
         deleteRecord,
         resetToDemoData,
         importRecords,
