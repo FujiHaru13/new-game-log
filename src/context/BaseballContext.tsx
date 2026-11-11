@@ -17,6 +17,7 @@ import { createTicketOnlySaveController, isV2TicketWriteEnabled } from '../lib/a
 import { createFullFormV2SaveController, isV2FullFormWriteEnabled } from '../lib/atomic/fullFormSaveBridge';
 import type { TicketEditorDraft } from '../lib/atomic/ticketEditorDraft';
 import type { V2SaveController, SavePhase } from '../lib/atomic/adapter';
+import { reviewPendingSaveReadOnly, type PendingReview } from '../lib/atomic/pendingSaveReview';
 import { assertNoPendingSave, beginPendingSave, clearConfirmedPendingSave, markPendingSave, readPendingSave, type PendingSaveMarker } from '../lib/atomic/pendingSaveGuard';
 
 const STORAGE_KEY = 'baseball_watch_log_data_v3_excel';
@@ -61,6 +62,7 @@ interface BaseballContextType {
   saveTicketEditsV2: (record: MatchRecord, draft: TicketEditorDraft) => Promise<{phase: SavePhase; message?: string}>;
   refreshTicketEditsV2: () => Promise<{phase: SavePhase; message?: string}>;
   getV2PendingSaveNotice: (matchId: string) => string | null;
+  reviewPendingSaveV2: (matchId: string) => Promise<PendingReview>;
   deleteRecord: (id: string) => Promise<void>;
   resetToDemoData: () => void;
   importRecords: (incoming: MatchRecord[], mode: 'merge' | 'replace') => { added: number; updated: number };
@@ -420,6 +422,13 @@ export const BaseballProvider: React.FC<{ children: React.ReactNode }> = ({ chil
       return marker ? `この試合には${marker.startedAt}開始の保存確認待ちがあります。ページを再読み込みしても再送信はできません。保存内容を読み取り、手動で照合してください。` : null;
     } catch (error) { return error instanceof Error ? error.message : '保存確認記録を確認できません。'; }
   };
+  const reviewPendingSaveV2 = async (matchId: string): Promise<PendingReview> => {
+    if (!connection || !user || !isAuthorized) {
+      return {status:'unavailable', message:'認証または接続が利用できないため確認できません。保存停止は維持します。'};
+    }
+    // Explicit READ ONLY. Never call save(), clear markers, or invoke legacy REST.
+    return reviewPendingSaveReadOnly(connection.client, user.id, matchId);
+  };
   const finishV2Pending = (phase: SavePhase) => {
     const pending = ticketV2Pending.current;
     if (!pending) return;
@@ -624,6 +633,7 @@ export const BaseballProvider: React.FC<{ children: React.ReactNode }> = ({ chil
         saveTicketEditsV2,
         refreshTicketEditsV2,
         getV2PendingSaveNotice,
+        reviewPendingSaveV2,
         deleteRecord,
         resetToDemoData,
         importRecords,

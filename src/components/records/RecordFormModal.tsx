@@ -45,7 +45,7 @@ export const RecordFormModal: React.FC<RecordFormModalProps> = ({
   onClose,
   initialRecord,
 }) => {
-  const { addRecord, updateRecord, stadiums, v2TicketWriteEnabled, v2FullFormWriteEnabled, saveTicketEditsV2, saveFullFormV2, refreshTicketEditsV2, getV2PendingSaveNotice } = useBaseball();
+  const { addRecord, updateRecord, stadiums, v2TicketWriteEnabled, v2FullFormWriteEnabled, saveTicketEditsV2, saveFullFormV2, refreshTicketEditsV2, getV2PendingSaveNotice, reviewPendingSaveV2 } = useBaseball();
 
   // Active step in the form wizard (1: 試合, 2: 観戦, 3: 座席, 4: 費用, 5: 詳細スコア)
   const [activeStep, setActiveStep] = useState<number>(1);
@@ -56,6 +56,9 @@ export const RecordFormModal: React.FC<RecordFormModalProps> = ({
     if (!isOpen) saveNeedsRefresh.current = false;
   }, [isOpen]);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [pendingReview, setPendingReview] = useState<string | null>(null);
+  const [pendingReviewBusy, setPendingReviewBusy] = useState(false);
+  useEffect(() => { setPendingReview(null); }, [initialRecord?.id, isOpen]);
 
   // Form State
   const [date, setDate] = useState('2026-09-20');
@@ -567,6 +570,20 @@ export const RecordFormModal: React.FC<RecordFormModalProps> = ({
             <p className="font-semibold">保存確認待ちの操作があります</p>
             <p>{getV2PendingSaveNotice(initialRecord.id)}</p>
             <p>この画面から保存・削除を再実行しないでください。読み取ったDB状態だけでは以前の送信結果を確定できません。</p>
+            <button type="button" disabled={pendingReviewBusy} className="mt-2 rounded-lg border border-amber-600 px-3 py-2 disabled:opacity-50" onClick={async () => {
+              if (!initialRecord || pendingReviewBusy) return;
+              setPendingReviewBusy(true);
+              setPendingReview(null);
+              try {
+                const result = await reviewPendingSaveV2(initialRecord.id);
+                setPendingReview(result.status === 'observed_unproven'
+                  ? `${result.message} revision: ${result.revision} / 更新: ${result.updatedAt}`
+                  : result.message);
+              } catch {
+                setPendingReview('確認処理に失敗しました。再送信は禁止のままです。');
+              } finally { setPendingReviewBusy(false); }
+            }}>{pendingReviewBusy ? '読み取り中…' : 'DBを読み取り専用で確認'}</button>
+            {pendingReview && <p role="status" className="mt-2 whitespace-pre-wrap">{pendingReview}</p>}
           </div>
         )}
         {/* Error Alert */}
