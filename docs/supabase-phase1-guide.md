@@ -72,7 +72,7 @@ curl -i "$VITE_SUPABASE_URL/rest/v1/matches?select=id" \
 
 ### REST検証スクリプト
 
-ルートの[`verify-rls-rest.mjs`](../verify-rls-rest.mjs)は、既定の読み取り専用モードではINSERT・UPDATE・DELETEを一切送信しません。認証、承認済み本人による対象行の正確な1件SELECT、匿名・未承認ユーザーによる対象行の非取得だけを確認します。`RLS_EXPECTED_MATCH_ID`、`RLS_EXPECTED_WATCH_RECORD_ID`、`RLS_EXPECTED_SEAT_ID`はテーブル別の主キーとして扱い、対象行を承認済みセッションで事前確認できない場合はSKIPPEDとします。なお、現在のDDLでは`seats`に`id`列はなく、`watch_record_id`がPRIMARY KEYなので、`RLS_EXPECTED_SEAT_ID`の値も`watch_record_id`を指定します。
+tests/の[`verify-rls-rest.mjs`](../tests/verify-rls-rest.mjs)は、既定の読み取り専用モードではINSERT・UPDATE・DELETEを一切送信しません。認証、承認済み本人による対象行の正確な1件SELECT、匿名・未承認ユーザーによる対象行の非取得だけを確認します。`RLS_EXPECTED_MATCH_ID`、`RLS_EXPECTED_WATCH_RECORD_ID`、`RLS_EXPECTED_SEAT_ID`はテーブル別の主キーとして扱い、対象行を承認済みセッションで事前確認できない場合はSKIPPEDとします。なお、現在のDDLでは`seats`に`id`列はなく、`watch_record_id`がPRIMARY KEYなので、`RLS_EXPECTED_SEAT_ID`の値も`watch_record_id`を指定します。
 
 承認済み本人のCRUDと隔離行の作成・削除を実施する場合だけ、次を明示設定します。
 
@@ -106,7 +106,7 @@ npm run test:rls
 RLS_EXPECTED_MATCH_ID=b3c8645a-1bd5-4be4-9d10-68f05457c1ea \
 RLS_EXPECTED_WATCH_RECORD_ID=... \
 RLS_EXPECTED_SEAT_ID=... \
-node verify-rls-rest.mjs
+node tests/verify-rls-rest.mjs
 ```
 
 書き込み検証は、専用の承認済み本人・未承認ユーザーを用意し、次のように明示的に有効化します。作成されるのは今回の実行で生成した隔離matchだけで、既存IDはUPDATE/DELETEしません。
@@ -121,7 +121,7 @@ RLS_TEST_PASSWORD=... \
 RLS_EXPECTED_MATCH_ID=b3c8645a-1bd5-4be4-9d10-68f05457c1ea \
 RLS_EXPECTED_WATCH_RECORD_ID=... \
 RLS_EXPECTED_SEAT_ID=... \
-node verify-rls-rest.mjs
+node tests/verify-rls-rest.mjs
 ```
 
 期待ログには、隔離match作成、未承認UPDATE/DELETEの拒否または0件かつ状態不変、限定DELETE後の不存在確認、`FAIL=0`が含まれます。予期しないINSERT/UPDATE/DELETE成功、状態確認不能、通信例外では後続書き込みと自動クリーンアップを停止し、隔離match UUIDを手動確認用に出力します。
