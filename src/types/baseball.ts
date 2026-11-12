@@ -22,6 +22,7 @@ export type MatchType =
   | 'nippon_series'  // 日本シリーズ
   | 'practice'       // 練習試合・教育リーグ
   | 'international'  // 国際試合・壮行試合
+  | 'samurai_japan'  // 侍ジャパン
   | 'other';         // その他
 
 export type MatchStatus = 'scheduled' | 'finished' | 'cancelled' | 'in_progress';

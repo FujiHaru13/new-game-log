@@ -232,6 +232,7 @@ export function getMatchTypeName(type: MatchRecord['matchType']): string {
     nippon_series: '日本シリーズ',
     practice: '練習・ファーム',
     international: '国際大会',
+    samurai_japan: '侍ジャパン',
     other: 'その他',
   };
   return map[type] || '試合';
