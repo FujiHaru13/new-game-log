@@ -56,9 +56,6 @@ export const Header: React.FC<HeaderProps> = () => {
           <span className="font-display font-bold tracking-tight text-xl text-[#003882] dark:text-blue-400 whitespace-nowrap">
             観戦ログ
           </span>
-          <span className="hidden sm:inline-block text-xs font-semibold px-2 py-0.5 rounded bg-blue-50 text-blue-700 dark:bg-blue-950/60 dark:text-blue-300 border border-blue-200/60 dark:border-blue-800/60 whitespace-nowrap">
-            DRAGONS WATCH
-          </span>
         </button>
 
         <span className="text-slate-300 dark:text-slate-700 hidden sm:inline" aria-hidden="true">/</span>
