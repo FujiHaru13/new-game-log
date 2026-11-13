@@ -72,10 +72,12 @@ export const Sidebar: React.FC<SidebarProps> = ({ isCollapsed, setIsCollapsed })
   ];
 
   return (
+    // 高さはページ全体ではなくウィンドウに合わせ、スクロールしても常に
+    // 画面内に残す（min-h-screen だと本文の長さまで伸びて下端が見えなくなる）
     <aside
       className={`hidden md:flex flex-col bg-slate-900 text-slate-200 border-r border-slate-800 transition-all duration-200 select-none ${
         isCollapsed ? 'w-18' : 'w-64'
-      } shrink-0 min-h-screen z-20`}
+      } shrink-0 sticky top-0 self-start h-screen z-20`}
     >
       {/* Sidebar Header */}
       <div className="h-16 flex items-center justify-between px-4 border-b border-slate-800/80 bg-slate-950/40">
@@ -96,23 +98,28 @@ export const Sidebar: React.FC<SidebarProps> = ({ isCollapsed, setIsCollapsed })
         )}
 
         {isCollapsed && (
-          <div className="w-full flex justify-center">
-            <div className="w-9 h-9 rounded-lg bg-[#003882] border border-blue-400/40 flex items-center justify-center font-display font-bold text-white text-base">
+          <button
+            onClick={() => setIsCollapsed(false)}
+            className="w-full flex justify-center"
+            title="サイドバーを展開"
+            aria-label="サイドバーを展開"
+          >
+            <div className="w-9 h-9 rounded-lg bg-[#003882] border border-blue-400/40 flex items-center justify-center font-display font-bold text-white text-base hover:bg-[#0a4da3] transition-colors">
               D
             </div>
-          </div>
+          </button>
         )}
 
-        <button
-          onClick={() => setIsCollapsed(!isCollapsed)}
-          className={`p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800/80 transition-colors ${
-            isCollapsed ? 'hidden' : 'block'
-          }`}
-          title={isCollapsed ? 'サイドバーを展開' : 'サイドバーを折りたたむ'}
-          aria-label="サイドバー開閉"
-        >
-          {isCollapsed ? <ChevronRight className="w-4 h-4" /> : <ChevronLeft className="w-4 h-4" />}
-        </button>
+        {!isCollapsed && (
+          <button
+            onClick={() => setIsCollapsed(true)}
+            className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800/80 transition-colors"
+            title="サイドバーを折りたたむ"
+            aria-label="サイドバーを折りたたむ"
+          >
+            <ChevronLeft className="w-4 h-4" />
+          </button>
+        )}
       </div>
 
       {/* Main Nav Items */}
