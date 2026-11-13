@@ -86,7 +86,6 @@ export const RecordFormModal: React.FC<RecordFormModalProps> = ({
   const [matchStatus, setMatchStatus] = useState<MatchStatus>('finished');
   const [homeScore, setHomeScore] = useState<string>('4');
   const [awayScore, setAwayScore] = useState<string>('2');
-  const [isScoreConfirmed, setIsScoreConfirmed] = useState(true);
   const [durationHours, setDurationHours] = useState<string>('3');
   const [durationMinutes, setDurationMinutes] = useState<string>('5');
 
@@ -143,7 +142,6 @@ export const RecordFormModal: React.FC<RecordFormModalProps> = ({
       setMatchStatus(initialRecord.matchStatus);
       setHomeScore(initialRecord.homeScore !== null ? String(initialRecord.homeScore) : '');
       setAwayScore(initialRecord.awayScore !== null ? String(initialRecord.awayScore) : '');
-      setIsScoreConfirmed(initialRecord.isScoreConfirmed);
       if (initialRecord.matchDurationMinutes && initialRecord.matchDurationMinutes > 0) {
         const h = Math.floor(initialRecord.matchDurationMinutes / 60);
         const m = initialRecord.matchDurationMinutes % 60;
@@ -199,7 +197,6 @@ export const RecordFormModal: React.FC<RecordFormModalProps> = ({
       setMatchStatus('scheduled');
       setHomeScore('');
       setAwayScore('');
-      setIsScoreConfirmed(false);
       setWatchStatus('scheduled');
       setCheerTeamId('dragons');
       setCategories(['dragons_1st']);
@@ -467,7 +464,8 @@ export const RecordFormModal: React.FC<RecordFormModalProps> = ({
       matchStatus,
       homeScore: parsedHomeScore,
       awayScore: parsedAwayScore,
-      isScoreConfirmed,
+      // スコア確定はチェックボックスを廃止し、両チームのスコアが入力済みかで自動判定する
+      isScoreConfirmed: parsedHomeScore !== null && parsedAwayScore !== null,
       matchDurationMinutes: parsedDuration,
       innings: inningsData,
       pitchers: {
@@ -847,17 +845,7 @@ export const RecordFormModal: React.FC<RecordFormModalProps> = ({
                   </div>
                 </div>
 
-                <div className="flex items-center justify-between pt-1 text-slate-500">
-                  <label className="inline-flex items-center gap-1.5 cursor-pointer">
-                    <input
-                      type="checkbox"
-                      checked={isScoreConfirmed}
-                      onChange={(e) => setIsScoreConfirmed(e.target.checked)}
-                      className="rounded text-blue-600 focus:ring-0"
-                    />
-                    <span>スコア確定済み</span>
-                  </label>
-
+                <div className="flex items-center justify-end pt-1 text-slate-500">
                   <div className="flex items-center gap-2">
                     <span className="font-semibold text-slate-700 dark:text-slate-300">試合時間:</span>
                     <div className="flex items-center gap-1">
