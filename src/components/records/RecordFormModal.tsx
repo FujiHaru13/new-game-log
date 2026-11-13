@@ -239,6 +239,9 @@ export const RecordFormModal: React.FC<RecordFormModalProps> = ({
     seatTypes: [],
   };
 
+  // 席種の入力方式は球場で決まる: バンテリンドームはプルダウンのみ、それ以外は自由入力のみ
+  const isVantelinDome = stadiumId === 'vantelin_dome';
+
   // 過去の入力から集めた候補（datalist / チップ用）。重複を除く。
   const pastCompanions = useMemo(() => {
     const names = new Set<string>();
@@ -352,6 +355,12 @@ export const RecordFormModal: React.FC<RecordFormModalProps> = ({
       setSeatTypeName('');
     }
   };
+
+  // 自由入力モード（バンテリンドーム以外）で、既存レコードが球場マスタの席種IDを
+  // 持っている場合に現在の席種名を表示するための参照
+  const selectedMasterSeatType = seatTypeId
+    ? currentStadium.seatTypes.find(st => st.id === seatTypeId)
+    : undefined;
 
   // Toggle Category selection (multi-select)
   const toggleCategory = (catId: CategoryId) => {
@@ -1047,60 +1056,66 @@ export const RecordFormModal: React.FC<RecordFormModalProps> = ({
           {activeStep === 3 && (
             <div className="space-y-4 animate-in fade-in duration-150 text-sm">
               <p className="text-slate-500">
-                球場ごとの席種マスタに基づき、エリア・列・席番号を構造化して記録します。（未確定の予定試合は空欄可）
+                席種はバンテリンドームではプルダウンから選択、それ以外の球場では自由入力で登録します。エリア・列・席番号もあわせて記録します。（未確定の予定試合は空欄可）
               </p>
 
-              {/* 席種プルダウン（球場マスタ連動） */}
-              <div>
-                <label className="block font-bold text-slate-700 dark:text-slate-300 mb-1">
-                  席種プルダウン ({currentStadium.name})
-                </label>
-                <select
-                  value={seatTypeSelectValue}
-                  onChange={(e) => handleSeatTypeSelect(e.target.value)}
-                  className="w-full px-3 py-2 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 font-semibold"
-                >
-                  <option value="">-- 席種を選択 (または未定) --</option>
-                  <optgroup label="2026年公式席種">
-                    {OFFICIAL_SEAT_TYPES_2026.map(name => (
-                      <option key={name} value={`official:${name}`}>{name}</option>
-                    ))}
-                  </optgroup>
-                  {pastSeatTypes.length > 0 && (
-                    <optgroup label="過去に入力した席種">
-                      {pastSeatTypes.map(name => (
-                        <option key={name} value={`past:${name}`}>{name}</option>
+              {/* 席種: バンテリンドームはプルダウンのみ、それ以外は自由入力のみ */}
+              {isVantelinDome ? (
+                <div>
+                  <label className="block font-bold text-slate-700 dark:text-slate-300 mb-1">
+                    席種プルダウン ({currentStadium.name})
+                  </label>
+                  <select
+                    value={seatTypeSelectValue}
+                    onChange={(e) => handleSeatTypeSelect(e.target.value)}
+                    className="w-full px-3 py-2 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 font-semibold"
+                  >
+                    <option value="">-- 席種を選択 (または未定) --</option>
+                    <optgroup label="2026年公式席種">
+                      {OFFICIAL_SEAT_TYPES_2026.map(name => (
+                        <option key={name} value={`official:${name}`}>{name}</option>
                       ))}
                     </optgroup>
+                    {pastSeatTypes.length > 0 && (
+                      <optgroup label="過去に入力した席種">
+                        {pastSeatTypes.map(name => (
+                          <option key={name} value={`past:${name}`}>{name}</option>
+                        ))}
+                      </optgroup>
+                    )}
+                    {currentStadium.seatTypes.length > 0 && (
+                      <optgroup label={`${currentStadium.name}の席種`}>
+                        {currentStadium.seatTypes.map(st => (
+                          <option key={st.id} value={st.id}>
+                            {st.displayName} {st.priceRange && `(${st.priceRange})`}
+                          </option>
+                        ))}
+                      </optgroup>
+                    )}
+                  </select>
+                </div>
+              ) : (
+                <div>
+                  <label className="block font-bold text-slate-700 dark:text-slate-300 mb-1">
+                    席種（自由入力）
+                  </label>
+                  <input
+                    type="text"
+                    placeholder="席種を入力（例: 内野指定席）"
+                    value={seatTypeName}
+                    onChange={(e) => {
+                      setSeatTypeName(e.target.value);
+                      if (e.target.value.trim()) setSeatTypeId('');
+                    }}
+                    className="w-full px-3 py-2 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100"
+                  />
+                  {selectedMasterSeatType && !seatTypeName && (
+                    <p className="mt-2 text-slate-500">
+                      現在の席種: {selectedMasterSeatType.displayName}（入力すると上書きされます）
+                    </p>
                   )}
-                  {currentStadium.seatTypes.length > 0 && (
-                    <optgroup label={`${currentStadium.name}の席種`}>
-                      {currentStadium.seatTypes.map(st => (
-                        <option key={st.id} value={st.id}>
-                          {st.displayName} {st.priceRange && `(${st.priceRange})`}
-                        </option>
-                      ))}
-                    </optgroup>
-                  )}
-                </select>
-                {currentStadium.seatTypes.length === 0 && (
-                  <p className="mt-2 text-amber-700 dark:text-amber-300">
-                    この球場の席種マスターが未登録です。未選択のまま保存するか、下の自由入力を使用してください。管理者は
-                    <code className="mx-1">0006_seed_seat_types.sql</code>
-                    適用後に再読み込みしてください。
-                  </p>
-                )}
-                <input
-                  type="text"
-                  placeholder="自由入力の席種（マスター外）"
-                  value={seatTypeName}
-                  onChange={(e) => {
-                    setSeatTypeName(e.target.value);
-                    if (e.target.value.trim()) setSeatTypeId('');
-                  }}
-                  className="mt-2 w-full px-3 py-2 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100"
-                />
-              </div>
+                </div>
+              )}
 
               {/* 構造化入力: エリア, 列, 席番号 */}
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
