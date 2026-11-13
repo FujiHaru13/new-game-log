@@ -228,8 +228,6 @@ export const RecordFormModal: React.FC<RecordFormModalProps> = ({
     setErrorMessage(null);
   }, [initialRecord, isOpen]);
 
-  if (!isOpen) return null;
-
   // Selected Stadium seat types
   const currentStadium = stadiums.find(stadium => stadium.id === stadiumId) || {
     id: stadiumId,
@@ -294,6 +292,11 @@ export const RecordFormModal: React.FC<RecordFormModalProps> = ({
       setCheerTeamId(homeTeamId);
     }
   }, [matchupTeamIds, cheerTeamId, homeTeamId]);
+
+  // NOTE: この early return は全フックの後でなければならない。フックより前に
+  // 置くと、閉じている時と開いた時でフックの数が変わり、React が
+  // "Rendered more hooks than during the previous render" で落ちて画面が真っ白になる。
+  if (!isOpen) return null;
 
   // 同行者タグの追加／削除
   const addCompanion = (name: string) => {
