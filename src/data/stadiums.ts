@@ -181,8 +181,74 @@ export const STADIUMS: Stadium[] = [
   },
 ];
 
+/**
+ * マスター外の球場ID（シードデータ・Excel取込が生成する旧ID）の表示名解決。
+ * マスター側IDへ寄せられるものはエイリアス、対応マスターが無いものは
+ * 表示名フォールバックで解決し、生IDを画面に出さない。
+ */
+export const STADIUM_ID_ALIASES: Record<string, string> = {
+  yokohama: 'yokohama_stadium',
+  jingu: 'meiji_jingu',
+  mazda: 'mazda_zoom_zoom',
+  nagoya_dome: 'vantelin_dome',
+  vantelin: 'vantelin_dome',
+  tokyo: 'tokyo_dome',
+  escon: 'escon_field',
+  kyocera: 'kyocera_dome',
+  paypay: 'paypay_dome',
+  nagoya: 'nagoya_stadium',
+};
+
+export const STADIUM_ID_FALLBACKS: Record<string, { name: string; shortName: string; location: string; isDome: boolean }> = {
+  // 北谷（中日キャンプ地）。対応マスターが無いため表示名を用意する
+  chatan: { name: '北谷公園野球場', shortName: '北谷', location: '沖縄県中頭郡北谷町', isDome: false },
+  agre_chatan: { name: '北谷公園野球場', shortName: '北谷', location: '沖縄県中頭郡北谷町', isDome: false },
+  okazaki: { name: '岡崎市民球場', shortName: '岡崎', location: '愛知県岡崎市', isDome: false },
+  toyohashi: { name: '豊橋市民球場', shortName: '豊橋', location: '愛知県豊橋市', isDome: false },
+  gifu_nagaragawa: { name: '長良川球場', shortName: '長良川', location: '岐阜県岐阜市', isDome: false },
+  nagaragawa: { name: '長良川球場', shortName: '長良川', location: '岐阜県岐阜市', isDome: false },
+  kusanagi: { name: '草薙球場', shortName: '草薙', location: '静岡県静岡市', isDome: false },
+  shizuoka_kusanagi: { name: '草薙球場', shortName: '草薙', location: '静岡県静岡市', isDome: false },
+  matsuyama: { name: '松山中央公園野球場（坊っちゃんスタジアム）', shortName: '坊っちゃん', location: '愛媛県松山市', isDome: false },
+  botchan: { name: '松山中央公園野球場（坊っちゃんスタジアム）', shortName: '坊っちゃん', location: '愛媛県松山市', isDome: false },
+  kitakyushu: { name: '北九州市民球場', shortName: '北九州', location: '福岡県北九州市', isDome: false },
+  kumamoto: { name: 'リブワーク藤崎台球場', shortName: '藤崎台', location: '熊本県熊本市', isDome: false },
+  fujisakidai: { name: 'リブワーク藤崎台球場', shortName: '藤崎台', location: '熊本県熊本市', isDome: false },
+  naha: { name: '沖縄セルラースタジアム那覇', shortName: '那覇セルラー', location: '沖縄県那覇市', isDome: false },
+  okinawa_cellular: { name: '沖縄セルラースタジアム那覇', shortName: '那覇セルラー', location: '沖縄県那覇市', isDome: false },
+  ginowan: { name: '宜野湾市立野球場', shortName: '宜野湾', location: '沖縄県宜野湾市', isDome: false },
+  uruma: { name: 'うるま市具志川野球場', shortName: '具志川', location: '沖縄県うるま市', isDome: false },
+  koza: { name: 'コザしんきんスタジアム', shortName: 'コザ', location: '沖縄県沖縄市', isDome: false },
+  anan: { name: '阿南市野球場', shortName: '阿南', location: '徳島県阿南市', isDome: false },
+  kurashiki: { name: '倉敷マスカットスタジアム', shortName: 'マスカット', location: '岡山県倉敷市', isDome: false },
+  muscat: { name: '倉敷マスカットスタジアム', shortName: 'マスカット', location: '岡山県倉敷市', isDome: false },
+  sunmarine: { name: 'サンマリンスタジアム宮崎', shortName: 'サンマリン', location: '宮崎県宮崎市', isDome: false },
+  miyazaki: { name: 'サンマリンスタジアム宮崎', shortName: 'サンマリン', location: '宮崎県宮崎市', isDome: false },
+  kagoshima: { name: '平和リース球場', shortName: '平和リース', location: '鹿児島県鹿児島市', isDome: false },
+  kamoike: { name: '平和リース球場', shortName: '平和リース', location: '鹿児島県鹿児島市', isDome: false },
+};
+
 export const getStadium = (stadiumId: string): Stadium => {
-  return STADIUMS.find(s => s.id === stadiumId) || {
+  const direct = STADIUMS.find(s => s.id === stadiumId);
+  if (direct) return direct;
+  const aliasTarget = STADIUM_ID_ALIASES[stadiumId];
+  if (aliasTarget) {
+    const aliased = STADIUMS.find(s => s.id === aliasTarget);
+    if (aliased) return { ...aliased, id: stadiumId };
+  }
+  const fallback = STADIUM_ID_FALLBACKS[stadiumId];
+  if (fallback) {
+    return {
+      id: stadiumId,
+      name: fallback.name,
+      shortName: fallback.shortName,
+      location: fallback.location,
+      isDome: fallback.isDome,
+      order: 900,
+      seatTypes: [],
+    };
+  }
+  return {
     id: stadiumId,
     name: stadiumId,
     shortName: stadiumId,

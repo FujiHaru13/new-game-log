@@ -24,11 +24,8 @@ import {
   Ticket,
   TrendingUp,
   MapPin,
-  Clock,
   ArrowRight,
   Plus,
-  Coins,
-  ChevronRight,
 } from 'lucide-react';
 import { MatchRecord } from '../../types/baseball';
 
@@ -63,8 +60,19 @@ export const HomeDashboard: React.FC = () => {
     });
   }, [records, selectedYear, selectedCategory]);
 
-  // 集計指標
-  const stats = React.useMemo(() => aggregateRecords(filteredRecords), [filteredRecords]);
+  // ホーム最上部サマリー専用の集計: 中日1軍（primaryCategory=dragons_1st）のみ。
+  // 通算と今年度を並べ、今年度は公式戦（official）とオープン戦（official 以外）に分ける。
+  // 勝敗は応援チーム視点・勝率は引分除外（aggregateRecords の意味論に従う）。
+  const summaryYear = String(new Date().getFullYear());
+  const homeSummary = React.useMemo(() => {
+    const dragonsFirst = records.filter(r => r.primaryCategory === 'dragons_1st');
+    const thisYear = dragonsFirst.filter(r => r.date && r.date.startsWith(summaryYear));
+    return {
+      total: aggregateRecords(dragonsFirst),
+      official: aggregateRecords(thisYear.filter(r => r.matchType === 'official')),
+      open: aggregateRecords(thisYear.filter(r => r.matchType !== 'official')),
+    };
+  }, [records, summaryYear]);
 
   // 直近の観戦済み試合（完了済みを降順）
   const recentFinishedMatches = React.useMemo(() => {
@@ -140,26 +148,8 @@ export const HomeDashboard: React.FC = () => {
 
   return (
     <div className="space-y-6 w-full min-w-0 mx-auto pb-12">
-      {/* Dashboard metrics use their own available width, not the viewport width.
-          This also works when the desktop sidebar is expanded. */}
-      <style>{`
-        .dashboard-metric-grid {
-          display: grid;
-          grid-template-columns: minmax(0, 1fr);
-          gap: 0.625rem;
-        }
-        @container dashboard-panel (min-width: 440px) {
-          .dashboard-metric-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-        }
-        @container dashboard-panel (min-width: 740px) {
-          .dashboard-metric-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
-        }
-        @container dashboard-panel (min-width: 960px) {
-          .dashboard-metric-grid { grid-template-columns: repeat(6, minmax(0, 1fr)); }
-        }
-      `}</style>
-      {/* Top Banner & Filter Control Area */}
-      <div style={{ container: 'dashboard-panel / inline-size' }} className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-4 sm:p-5 shadow-xs">
+      {/* Header & Filter Control Area */}
+      <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-4 sm:p-5 shadow-xs">
         <div className="flex flex-col min-[1150px]:flex-row min-[1150px]:items-center justify-between gap-3">
           <div>
             <div className="flex items-center gap-2 text-xs font-semibold text-blue-700 dark:text-blue-400">
@@ -203,98 +193,38 @@ export const HomeDashboard: React.FC = () => {
             ))}
           </div>
         </div>
+      </div>
 
-        {/* Core Scoreboard Metric Grid */}
-        <div className="dashboard-metric-grid mt-4 pt-4 border-t border-slate-100 dark:border-slate-800">
-          {/* 1. 観戦試合数 */}
-          <div className="min-w-0 bg-slate-50 dark:bg-slate-950/60 border border-slate-200/80 dark:border-slate-800/80 rounded-xl px-3 py-3 sm:px-3.5 sm:py-3">
-            <span className="text-xs font-semibold text-slate-500 dark:text-slate-400">観戦試合数</span>
-            <div className="flex min-w-0 flex-wrap items-baseline gap-x-1 gap-y-0 mt-1">
-              <span className="text-2xl font-display font-bold text-slate-900 dark:text-slate-100 tabular-nums">
-                {stats.finishedMatches}
-              </span>
-              <span className="text-xs text-slate-500 font-medium">試合</span>
-            </div>
-            <div className="text-[11px] text-slate-500 mt-0.5 tabular-nums">
-              予定 {stats.scheduled} / 中止 {stats.cancelled}
-            </div>
-          </div>
-
-          {/* 2. 観戦勝率 */}
-          <div className="min-w-0 bg-slate-50 dark:bg-slate-950/60 border border-slate-200/80 dark:border-slate-800/80 rounded-xl px-3 py-3 sm:px-3.5 sm:py-3">
-            <span className="text-xs font-semibold text-slate-500 dark:text-slate-400">観戦勝率</span>
-            <div className="flex min-w-0 flex-wrap items-baseline gap-x-1 gap-y-0 mt-1">
-              <span className="text-2xl font-display font-bold text-[#003882] dark:text-blue-400 tabular-nums">
-                {formatWinRate(stats.winRate)}
-              </span>
-            </div>
-            <div className="text-[11px] text-slate-500 mt-0.5">
-              勝÷(勝+敗)
-            </div>
-          </div>
-
-          {/* 3. 勝敗分 内訳 */}
-          <div className="min-w-0 bg-slate-50 dark:bg-slate-950/60 border border-slate-200/80 dark:border-slate-800/80 rounded-xl px-3 py-3 sm:px-3.5 sm:py-3">
-            <span className="text-xs font-semibold text-slate-500 dark:text-slate-400">通算勝敗</span>
-            <div className="grid grid-cols-3 gap-1 mt-1 tabular-nums" aria-label={`勝${stats.wins}、敗${stats.losses}、引き分け${stats.draws}`}>
-              <div className="min-w-0 flex flex-col items-start">
-                <span className="font-display text-xl sm:text-2xl font-bold leading-none text-blue-700 dark:text-blue-400">{stats.wins}</span>
-                <span className="text-xs font-semibold text-blue-700 dark:text-blue-400">勝</span>
+      {/* 中日1軍サマリー（控えめな通常サイズ。特大数字ヒーローは置かない） */}
+      <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-4 sm:p-5 shadow-xs">
+        <div className="flex items-center justify-between mb-3">
+          <h3 className="text-sm font-bold text-slate-900 dark:text-slate-100">中日ドラゴンズ 1軍 観戦成績</h3>
+          <span className="text-[11px] text-slate-500">勝率は引分を除いて計算</span>
+        </div>
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+          {[
+            { key: 'total', label: '通算', accent: 'bg-[#003882]', data: homeSummary.total },
+            { key: 'official', label: `${summaryYear}年 公式戦`, accent: 'bg-official', data: homeSummary.official },
+            { key: 'open', label: `${summaryYear}年 オープン戦など`, accent: 'bg-opengame', data: homeSummary.open },
+          ].map(block => (
+            <div key={block.key} className="rounded-xl border border-slate-200/80 dark:border-slate-800 bg-slate-50 dark:bg-slate-950/60 px-3.5 py-3">
+              <div className="flex items-center gap-1.5 text-xs font-semibold text-slate-500 dark:text-slate-400">
+                <span className={`w-2 h-2 rounded-full ${block.accent}`} aria-hidden="true" />
+                {block.label}
+                <span className="font-normal">（{block.data.finishedMatches}試合）</span>
               </div>
-              <div className="min-w-0 flex flex-col items-start border-l border-slate-200 dark:border-slate-700 pl-2">
-                <span className="font-display text-xl sm:text-2xl font-bold leading-none text-rose-600 dark:text-rose-400">{stats.losses}</span>
-                <span className="text-xs font-semibold text-rose-600 dark:text-rose-400">敗</span>
-              </div>
-              <div className="min-w-0 flex flex-col items-start border-l border-slate-200 dark:border-slate-700 pl-2">
-                <span className="font-display text-xl sm:text-2xl font-bold leading-none text-amber-600 dark:text-amber-400">{stats.draws}</span>
-                <span className="text-xs font-semibold text-amber-600 dark:text-amber-400">分</span>
+              <div className="flex items-baseline gap-2 mt-1.5 tabular-nums">
+                <span className="text-base font-bold text-slate-900 dark:text-slate-100">
+                  <span className="text-win dark:text-win-dark">{block.data.wins}勝</span>
+                  <span className="text-slate-300 dark:text-slate-600 mx-1">-</span>
+                  <span className="text-loss dark:text-loss-dark">{block.data.losses}敗</span>
+                  <span className="text-slate-300 dark:text-slate-600 mx-1">-</span>
+                  <span className="text-draw dark:text-draw-dark">{block.data.draws}分</span>
+                </span>
+                <span className="text-sm font-bold text-[#003882] dark:text-blue-400">{formatWinRate(block.data.winRate)}</span>
               </div>
             </div>
-            <div className="text-[11px] text-slate-500 mt-0.5">
-              勝敗差 {stats.wins - stats.losses > 0 ? `+${stats.wins - stats.losses}` : stats.wins - stats.losses}
-            </div>
-          </div>
-
-          {/* 4. 平均得点 */}
-          <div className="min-w-0 bg-slate-50 dark:bg-slate-950/60 border border-slate-200/80 dark:border-slate-800/80 rounded-xl px-3 py-3 sm:px-3.5 sm:py-3">
-            <span className="text-xs font-semibold text-slate-500 dark:text-slate-400">平均得点</span>
-            <div className="flex min-w-0 flex-wrap items-baseline gap-x-1 gap-y-0 mt-1">
-              <span className="text-2xl font-display font-bold text-emerald-600 dark:text-emerald-400 tabular-nums">
-                {stats.avgRunsScored}
-              </span>
-              <span className="text-xs text-slate-500 font-medium">点/試合</span>
-            </div>
-            <div className="text-[11px] text-slate-500 mt-0.5 tabular-nums">
-              総得点: {stats.totalRunsScored}点
-            </div>
-          </div>
-
-          {/* 5. 平均失点 */}
-          <div className="min-w-0 bg-slate-50 dark:bg-slate-950/60 border border-slate-200/80 dark:border-slate-800/80 rounded-xl px-3 py-3 sm:px-3.5 sm:py-3">
-            <span className="text-xs font-semibold text-slate-500 dark:text-slate-400">平均失点</span>
-            <div className="flex min-w-0 flex-wrap items-baseline gap-x-1 gap-y-0 mt-1">
-              <span className="text-2xl font-display font-bold text-slate-700 dark:text-slate-300 tabular-nums">
-                {stats.avgRunsConceded}
-              </span>
-              <span className="text-xs text-slate-500 font-medium">点/試合</span>
-            </div>
-            <div className="text-[11px] text-slate-500 mt-0.5 tabular-nums">
-              総失点: {stats.totalRunsConceded}点 (差 {stats.avgRunDiff > 0 ? `+${stats.avgRunDiff}` : stats.avgRunDiff})
-            </div>
-          </div>
-
-          {/* 6. 自己負担観戦費用 */}
-          <div className="min-w-0 bg-slate-50 dark:bg-slate-950/60 border border-slate-200/80 dark:border-slate-800/80 rounded-xl px-3 py-3 sm:px-3.5 sm:py-3">
-            <span className="text-xs font-semibold text-slate-500 dark:text-slate-400">自己負担費用</span>
-            <div className="flex min-w-0 flex-wrap items-baseline gap-x-1 gap-y-0 mt-1">
-              <span className="text-xl sm:text-2xl font-display font-bold text-slate-900 dark:text-slate-100 tabular-nums break-words">
-                {formatCurrency(stats.totalMyExpense)}
-              </span>
-            </div>
-            <div className="text-[11px] text-slate-500 mt-0.5 tabular-nums">
-              平均 {formatCurrency(stats.avgMyExpense)}/回
-            </div>
-          </div>
+          ))}
         </div>
       </div>
 
@@ -445,7 +375,7 @@ export const HomeDashboard: React.FC = () => {
         {/* Right Column (1 span): Upcoming Schedule & Ticket Alerts */}
         <div className="space-y-6">
           {/* Upcoming Matches */}
-          <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-4 sm:p-5 shadow-xs space-y-4">
+          <div className="bg-upcoming-bg dark:bg-slate-900 border border-upcoming-border dark:border-slate-800 rounded-2xl p-4 sm:p-5 shadow-xs space-y-4">
             <div className="flex items-center justify-between">
               <h3 className="text-base font-bold text-slate-900 dark:text-slate-100 flex items-center gap-2">
                 <Calendar className="w-4 h-4 text-blue-600" />
@@ -573,11 +503,11 @@ export const HomeDashboard: React.FC = () => {
                       {item.matches}
                     </td>
                     <td className="py-2.5 text-center font-display tabular-nums">
-                      <span className="text-blue-600 dark:text-blue-400">{item.wins}</span>
+                      <span className="text-red-600 dark:text-red-400">{item.wins}</span>
                       <span className="text-slate-400"> - </span>
-                      <span className="text-rose-600 dark:text-rose-400">{item.losses}</span>
+                      <span className="text-blue-600 dark:text-blue-400">{item.losses}</span>
                       <span className="text-slate-400"> - </span>
-                      <span className="text-amber-600 dark:text-amber-400">{item.draws}</span>
+                      <span className="text-slate-500 dark:text-slate-400">{item.draws}</span>
                     </td>
                     <td className="py-2.5 text-right font-display font-bold tabular-nums text-[#003882] dark:text-blue-400">
                       {formatWinRate(item.winRate)}

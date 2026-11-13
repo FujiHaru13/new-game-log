@@ -31,7 +31,7 @@ const AppContent: React.FC = () => {
         <Header />
 
         {/* Content Viewport */}
-        <main className="flex-1 px-4 sm:px-6 lg:px-8 py-6 max-w-[1600px] w-full mx-auto">
+        <main className="flex-1 px-4 sm:px-6 lg:px-8 py-6 max-w-6xl w-full mx-auto">
           {activeTab === 'home' && <HomeDashboard />}
           {activeTab === 'records' && <RecordList />}
           {activeTab === 'stats' && <StatsDashboard />}

@@ -314,8 +314,76 @@ export const TEAMS: Team[] = [
   },
 ];
 
+/**
+ * マスター外ID（シードデータ・Excel取込が生成する旧ID／代表チームID）の
+ * 表示名フォールバック。生IDを画面に出さないための解決表。
+ * 代表チームは日本語の国名で表示する。
+ */
+export const TEAM_ID_FALLBACKS: Record<string, { name: string; shortName: string; code: string; color: string; textColor: string }> = {
+  // シード側の日本代表ID（マスターの samurai_japan とは別ID）
+  japan_national: { name: '日本', shortName: '日本', code: 'JPN', color: '#B31B1B', textColor: '#ffffff' },
+  japan: { name: '日本', shortName: '日本', code: 'JPN', color: '#B31B1B', textColor: '#ffffff' },
+  // シード側の対戦相手ID
+  australia: { name: 'オーストラリア', shortName: 'オーストラリア', code: 'AUS', color: '#00843D', textColor: '#FFCD00' },
+  czech: { name: 'チェコ', shortName: 'チェコ', code: 'CZE', color: '#11457E', textColor: '#ffffff' },
+  czechia: { name: 'チェコ', shortName: 'チェコ', code: 'CZE', color: '#11457E', textColor: '#ffffff' },
+  // その他の代表チーム（国名表示）
+  korea: { name: '韓国', shortName: '韓国', code: 'KOR', color: '#003478', textColor: '#ffffff' },
+  south_korea: { name: '韓国', shortName: '韓国', code: 'KOR', color: '#003478', textColor: '#ffffff' },
+  taiwan: { name: 'チャイニーズ・タイペイ', shortName: '台湾', code: 'TPE', color: '#002F6C', textColor: '#ffffff' },
+  chinese_taipei: { name: 'チャイニーズ・タイペイ', shortName: '台湾', code: 'TPE', color: '#002F6C', textColor: '#ffffff' },
+  usa: { name: 'アメリカ', shortName: 'アメリカ', code: 'USA', color: '#002868', textColor: '#ffffff' },
+  united_states: { name: 'アメリカ', shortName: 'アメリカ', code: 'USA', color: '#002868', textColor: '#ffffff' },
+  china: { name: '中国', shortName: '中国', code: 'CHN', color: '#DE2910', textColor: '#FFDE00' },
+  mexico: { name: 'メキシコ', shortName: 'メキシコ', code: 'MEX', color: '#006847', textColor: '#ffffff' },
+  cuba: { name: 'キューバ', shortName: 'キューバ', code: 'CUB', color: '#002A8F', textColor: '#ffffff' },
+  dominican_republic: { name: 'ドミニカ共和国', shortName: 'ドミニカ', code: 'DOM', color: '#002D62', textColor: '#ffffff' },
+  dominicana: { name: 'ドミニカ共和国', shortName: 'ドミニカ', code: 'DOM', color: '#002D62', textColor: '#ffffff' },
+  puerto_rico: { name: 'プエルトリコ', shortName: 'プエルトリコ', code: 'PUR', color: '#0050A4', textColor: '#ffffff' },
+  venezuela: { name: 'ベネズエラ', shortName: 'ベネズエラ', code: 'VEN', color: '#FCD116', textColor: '#00247D' },
+  canada: { name: 'カナダ', shortName: 'カナダ', code: 'CAN', color: '#FF0000', textColor: '#ffffff' },
+  netherlands: { name: 'オランダ', shortName: 'オランダ', code: 'NED', color: '#FF6600', textColor: '#ffffff' },
+  italy: { name: 'イタリア', shortName: 'イタリア', code: 'ITA', color: '#0064AA', textColor: '#ffffff' },
+  israel: { name: 'イスラエル', shortName: 'イスラエル', code: 'ISR', color: '#0038b8', textColor: '#ffffff' },
+  great_britain: { name: 'イギリス', shortName: 'イギリス', code: 'GBR', color: '#012169', textColor: '#ffffff' },
+  germany: { name: 'ドイツ', shortName: 'ドイツ', code: 'GER', color: '#000000', textColor: '#FFCE00' },
+  colombia: { name: 'コロンビア', shortName: 'コロンビア', code: 'COL', color: '#FCD116', textColor: '#003893' },
+  panama: { name: 'パナマ', shortName: 'パナマ', code: 'PAN', color: '#005293', textColor: '#ffffff' },
+  nicaragua: { name: 'ニカラグア', shortName: 'ニカラグア', code: 'NCA', color: '#0067C6', textColor: '#ffffff' },
+  new_zealand: { name: 'ニュージーランド', shortName: 'ニュージーランド', code: 'NZL', color: '#00247D', textColor: '#ffffff' },
+  philippines: { name: 'フィリピン', shortName: 'フィリピン', code: 'PHI', color: '#0038A8', textColor: '#ffffff' },
+};
+
+/** マスター側IDへのエイリアス（表示はマスター定義を使う） */
+export const TEAM_ID_ALIASES: Record<string, string> = {
+  team_japan: 'samurai_japan',
+  samurai: 'samurai_japan',
+  team_australia_alias: 'team_australia',
+};
+
 export const getTeam = (teamId: string): Team => {
-  return TEAMS.find(t => t.id === teamId) || {
+  const direct = TEAMS.find(t => t.id === teamId);
+  if (direct) return direct;
+  const aliasTarget = TEAM_ID_ALIASES[teamId];
+  if (aliasTarget) {
+    const aliased = TEAMS.find(t => t.id === aliasTarget);
+    if (aliased) return { ...aliased, id: teamId };
+  }
+  const fallback = TEAM_ID_FALLBACKS[teamId];
+  if (fallback) {
+    return {
+      id: teamId,
+      name: fallback.name,
+      shortName: fallback.shortName,
+      code: fallback.code,
+      color: fallback.color,
+      textColor: fallback.textColor,
+      league: 'japan',
+      leagueName: '国際代表',
+      order: 900,
+    };
+  }
+  return {
     id: teamId,
     name: teamId,
     shortName: teamId,

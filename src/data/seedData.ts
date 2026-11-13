@@ -9322,10 +9322,18 @@ const LEGACY_SEED_RECORDS: Omit<MatchRecord, 'tickets'>[] = [
     "stadiumId": "vantelin_dome",
     "matchType": "international",
     "matchStatus": "finished",
-    "homeScore": 3,
-    "awayScore": 7,
+    "homeScore": 7,
+    "awayScore": 3,
     "isScoreConfirmed": true,
     "matchDurationMinutes": null,
+    "innings": {
+      "home": [1, 1, 0, 0, 5, 0, 0, 0, 0],
+      "away": [1, 0, 1, 1, 0, 0, 0, 0, 0],
+      "homeHits": 9,
+      "awayHits": 7,
+      "homeErrors": 0,
+      "awayErrors": 1
+    },
     "pitchers": {
       "homeStarter": "伊藤大"
     },
@@ -12022,7 +12030,7 @@ const LEGACY_SEED_RECORDS: Omit<MatchRecord, 'tickets'>[] = [
     "time": "11:30",
     "isDateUnknown": false,
     "homeTeamId": "dragons",
-    "awayTeamId": "tigers",
+    "awayTeamId": "hayate",
     "stadiumId": "nagoya_stadium",
     "matchType": "practice",
     "matchStatus": "finished",

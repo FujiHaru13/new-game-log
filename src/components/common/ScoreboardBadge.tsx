@@ -18,26 +18,27 @@ export const ScoreboardBadge: React.FC<ScoreboardBadgeProps> = ({
   className = '',
 }) => {
   const configs = {
+    // 勝敗色は統一トークン（勝利=赤 / 敗戦=青 / 引分=グレー、index.css の @theme 参照）
     win: {
       label: '勝',
       longLabel: '勝利',
-      textColor: 'text-blue-700 dark:text-blue-400',
-      bgColor: 'bg-blue-50 dark:bg-blue-950/60',
-      borderColor: 'border-blue-200 dark:border-blue-800',
+      textColor: 'text-win dark:text-win-dark',
+      bgColor: 'bg-win-bg dark:bg-red-950/60',
+      borderColor: 'border-red-200 dark:border-red-800',
     },
     loss: {
       label: '敗',
       longLabel: '敗戦',
-      textColor: 'text-rose-700 dark:text-rose-400',
-      bgColor: 'bg-rose-50 dark:bg-rose-950/60',
-      borderColor: 'border-rose-200 dark:border-rose-800',
+      textColor: 'text-loss dark:text-loss-dark',
+      bgColor: 'bg-loss-bg dark:bg-blue-950/60',
+      borderColor: 'border-blue-200 dark:border-blue-800',
     },
     draw: {
       label: '分',
       longLabel: '引分',
-      textColor: 'text-amber-700 dark:text-amber-400',
-      bgColor: 'bg-amber-50 dark:bg-amber-950/60',
-      borderColor: 'border-amber-200 dark:border-amber-800',
+      textColor: 'text-draw dark:text-draw-dark',
+      bgColor: 'bg-draw-bg dark:bg-slate-800/60',
+      borderColor: 'border-slate-300 dark:border-slate-700',
     },
     scheduled: {
       label: '予定',

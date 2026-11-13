@@ -209,7 +209,7 @@ export const RecordList: React.FC = () => {
     homeAwayFilter !== 'all';
 
   return (
-    <div className="space-y-6 max-w-7xl mx-auto pb-16">
+    <div className="space-y-6 w-full pb-16">
       {/* Top Filter and Search Bar */}
       <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-5 shadow-xs space-y-4">
         {/* Row 1: Search & Quick Year/Category pills */}

@@ -37,35 +37,30 @@ export const Sidebar: React.FC<SidebarProps> = ({ isCollapsed, setIsCollapsed })
     {
       id: 'home' as const,
       label: 'ホーム',
-      enLabel: 'Dashboard',
       icon: Home,
       badge: null,
     },
     {
       id: 'records' as const,
       label: '観戦記録',
-      enLabel: 'Game Logs',
       icon: ListFilter,
       badge: records.length,
     },
     {
       id: 'stats' as const,
       label: '統計・分析',
-      enLabel: 'Statistics',
       icon: BarChart3,
       badge: null,
     },
     {
       id: 'schedule' as const,
       label: '予定・チケット',
-      enLabel: 'Tickets & Plan',
       icon: Ticket,
       badge: records.filter(r => r.watchStatus === 'scheduled').length || null,
     },
     {
       id: 'settings' as const,
       label: '設定・マスター',
-      enLabel: 'Master & Settings',
       icon: Settings,
       badge: null,
     },
@@ -90,8 +85,8 @@ export const Sidebar: React.FC<SidebarProps> = ({ isCollapsed, setIsCollapsed })
               <span className="font-display font-bold tracking-tight text-base text-white truncate">
                 観戦ログ
               </span>
-              <span className="text-[10px] text-slate-400 tracking-wider uppercase font-medium">
-                Dragons Official fan
+              <span className="text-[10px] text-slate-400 font-medium">
+                中日ドラゴンズ観戦記録
               </span>
             </div>
           </div>
@@ -170,9 +165,9 @@ export const Sidebar: React.FC<SidebarProps> = ({ isCollapsed, setIsCollapsed })
             </span>
           </div>
           <div className="flex items-center justify-between text-xs text-slate-300 font-display font-semibold tabular-nums">
-            <span className="text-blue-400">{stats.wins}勝</span>
-            <span className="text-rose-400">{stats.losses}敗</span>
-            <span className="text-amber-400">{stats.draws}分</span>
+            <span className="text-red-400">{stats.wins}勝</span>
+            <span className="text-blue-400">{stats.losses}敗</span>
+            <span className="text-slate-400">{stats.draws}分</span>
             <span className="text-slate-500">({stats.finishedMatches}試合)</span>
           </div>
         </div>

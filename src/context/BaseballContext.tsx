@@ -17,6 +17,7 @@ import { createTicketOnlySaveController, isV2TicketWriteEnabled } from '../lib/a
 import { createFullFormV2SaveController, isV2FullFormWriteEnabled } from '../lib/atomic/fullFormSaveBridge';
 import type { TicketEditorDraft } from '../lib/atomic/ticketEditorDraft';
 import type { V2SaveController, SavePhase } from '../lib/atomic/adapter';
+import { buildMasterRenameTargets, type MasterKind } from '../utils/masterData';
 import { reviewPendingSaveReadOnly, type PendingReview } from '../lib/atomic/pendingSaveReview';
 import { assertNoPendingSave, beginPendingSave, clearConfirmedPendingSave, markPendingSave, readPendingSave, type PendingSaveMarker } from '../lib/atomic/pendingSaveGuard';
 
@@ -64,6 +65,8 @@ interface BaseballContextType {
   getV2PendingSaveNotice: (matchId: string) => string | null;
   reviewPendingSaveV2: (matchId: string) => Promise<PendingReview>;
   deleteRecord: (id: string) => Promise<void>;
+  /** マスター管理: 名前の一括置換。保存経路（Supabase/ローカル）を通して永続化し、変更した記録件数を返す */
+  renameMasterEntries: (kind: MasterKind, oldName: string, newName: string) => Promise<number>;
   resetToDemoData: () => void;
   importRecords: (incoming: MatchRecord[], mode: 'merge' | 'replace') => { added: number; updated: number };
   exportToJSON: () => void;
@@ -487,6 +490,42 @@ export const BaseballProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     return presentTicketState(result.phase, result.issue?.message);
   };
 
+  // マスター管理の一括置換。updateRecord と同じ保存経路
+  // （接続時は Supabase 側レコード更新、ローカルモード時はローカル保存）を通す。
+  const renameMasterEntries = async (kind: MasterKind, oldName: string, newName: string): Promise<number> => {
+    const trimmedOld = oldName.trim();
+    const trimmedNew = newName.trim();
+    if (!trimmedOld) throw new Error('変更前の名前が指定されていません。');
+    if (!trimmedNew) throw new Error('変更後の名前は空欄にできません。');
+    if (trimmedOld === trimmedNew) throw new Error('変更前と変更後の名前が同じです。');
+    if (!connection && localStorageBlocked.current) throw new Error('保存済みデータが不正なため上書きを停止しています。元データを確認してください。');
+
+    const targets = buildMasterRenameTargets(records, kind, trimmedOld, trimmedNew);
+    if (targets.length === 0) return 0;
+
+    const savedTargets: MatchRecord[] = [];
+    for (const target of targets) {
+      const normalized = normalizeRecordTickets(target);
+      let savedUpdatedAt = normalized.updatedAt;
+      if (connection && user) {
+        assertNoPendingSave(user.id, normalized.id);
+        if (normalized.tickets.length > 1) {
+          throw new Error('複数チケットがあるため保存できない記録が含まれています。中断しました。');
+        }
+        const result = await saveMatchRecordWithPhase2(connection.client, user.id, normalized, false);
+        if (result?.updated_at) savedUpdatedAt = result.updated_at;
+        if (result && 'refreshRequired' in result && result.refreshRequired) {
+          throw new SavedRecordRefreshRequiredError();
+        }
+      }
+      savedTargets.push({ ...normalized, updatedAt: savedUpdatedAt });
+    }
+
+    const byId = new Map(savedTargets.map(t => [t.id, t]));
+    setRecords(prev => prev.map(r => byId.get(r.id) ?? r));
+    return savedTargets.length;
+  };
+
   const deleteRecord = async (id: string): Promise<void> => {
     if (connection && user) { assertNoPendingSave(user.id, id); await deleteMatchRecord(connection.client, user.id, id); }
     setRecords(prev => prev.filter(r => r.id !== id));
@@ -635,6 +674,7 @@ export const BaseballProvider: React.FC<{ children: React.ReactNode }> = ({ chil
         getV2PendingSaveNotice,
         reviewPendingSaveV2,
         deleteRecord,
+        renameMasterEntries,
         resetToDemoData,
         importRecords,
         exportToJSON,

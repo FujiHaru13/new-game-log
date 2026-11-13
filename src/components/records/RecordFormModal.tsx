@@ -18,6 +18,8 @@ import {
   CategoryId,
 } from '../../types/baseball';
 import { TEAMS, CATEGORIES } from '../../data/teams';
+import { NameMultiSearchField, NameSearchField } from '../common/NameSearchPanel';
+import { extractMasterEntries, extractHomeRunPlayer, splitCompanionNames } from '../../utils/masterData';
 import { OFFICIAL_SEAT_TYPES_2026 } from '../../data/officialSeatTypes2026';
 import {
   X,
@@ -30,20 +32,6 @@ interface RecordFormModalProps {
   isOpen: boolean;
   onClose: () => void;
   initialRecord?: MatchRecord | null;
-}
-
-/** 同行者文字列を「、」「,」で分割して個人名の配列にする */
-function splitCompanionNames(value: string): string[] {
-  return value
-    .split(/[,、]/)
-    .map(s => s.trim())
-    .filter(s => s.length > 0);
-}
-
-/** 本塁打エントリ（例:「細川成也 21号2ラン(3回裏・戸郷)」）から先頭の選手名部分を抽出する */
-function extractHomeRunPlayer(value: string): string {
-  const first = value.split(/[\s　]+/)[0]?.trim() || '';
-  return first;
 }
 
 /** イニング別得点の合計（R）。数値でない入力（'X'など）は0として扱う */
@@ -95,7 +83,6 @@ export const RecordFormModal: React.FC<RecordFormModalProps> = ({
   const [categories, setCategories] = useState<CategoryId[]>(['dragons_1st']);
   const [primaryCategory, setPrimaryCategory] = useState<CategoryId>('dragons_1st');
   const [companionTags, setCompanionTags] = useState<string[]>([]);
-  const [companionInput, setCompanionInput] = useState('');
   const [watchMemo, setWatchMemo] = useState('');
 
   // Seat info
@@ -202,7 +189,6 @@ export const RecordFormModal: React.FC<RecordFormModalProps> = ({
       setCategories(['dragons_1st']);
       setPrimaryCategory('dragons_1st');
       setCompanionTags([]);
-      setCompanionInput('');
       setMyExpense('');
       setDurationHours('');
       setDurationMinutes('');
@@ -239,44 +225,17 @@ export const RecordFormModal: React.FC<RecordFormModalProps> = ({
   // 席種の入力方式は球場で決まる: バンテリンドームはプルダウンのみ、それ以外は自由入力のみ
   const isVantelinDome = stadiumId === 'vantelin_dome';
 
-  // 過去の入力から集めた候補（datalist / チップ用）。重複を除く。
-  const pastCompanions = useMemo(() => {
-    const names = new Set<string>();
-    records.forEach(r => {
-      splitCompanionNames(r.companions || '').forEach(n => names.add(n));
-    });
-    return [...names];
-  }, [records]);
+  // 検索パネル用マスター候補（全記録から動的抽出・使用件数つき）。
+  // 記録を保存すれば、その名前は次回からマスターに現れる。
+  const companionCandidates = useMemo(() => extractMasterEntries(records, 'companions'), [records]);
+  const pitcherCandidates = useMemo(() => extractMasterEntries(records, 'pitchers'), [records]);
+  const homeRunCandidates = useMemo(() => extractMasterEntries(records, 'homeRunPlayers'), [records]);
 
   const pastSeatTypes = useMemo(() => {
     const names = new Set<string>();
     records.forEach(r => {
       const name = (r.seatInfo?.seatTypeName || '').trim();
       if (name && !OFFICIAL_SEAT_TYPES_2026.includes(name)) names.add(name);
-    });
-    return [...names];
-  }, [records]);
-
-  const pastPitchers = useMemo(() => {
-    const names = new Set<string>();
-    records.forEach(r => {
-      const p = r.pitchers;
-      if (!p) return;
-      [p.homeStarter, p.awayStarter, p.winningPitcher, p.losingPitcher, p.savePitcher].forEach(n => {
-        const name = (n || '').trim();
-        if (name) names.add(name);
-      });
-    });
-    return [...names];
-  }, [records]);
-
-  const pastHomeRunPlayers = useMemo(() => {
-    const names = new Set<string>();
-    records.forEach(r => {
-      (r.homeRuns || []).forEach(hr => {
-        const name = extractHomeRunPlayer(hr);
-        if (name) names.add(name);
-      });
     });
     return [...names];
   }, [records]);
@@ -298,14 +257,15 @@ export const RecordFormModal: React.FC<RecordFormModalProps> = ({
   // "Rendered more hooks than during the previous render" で落ちて画面が真っ白になる。
   if (!isOpen) return null;
 
-  // 同行者タグの追加／削除
-  const addCompanion = (name: string) => {
-    const trimmed = name.trim();
-    if (!trimmed || companionTags.includes(trimmed)) return;
-    setCompanionTags(prev => [...prev, trimmed]);
-  };
-  const removeCompanion = (name: string) => {
-    setCompanionTags(prev => prev.filter(t => t !== name));
+  // 本塁打選手の複数選択: 選択された選手名と homeRunEntries（詳細テキスト含む）を同期する。
+  // 既存エントリの詳細（「21号2ラン」等）は保持し、新規選手は名前だけのエントリを追加する。
+  const handleHomeRunPlayersChange = (names: string[]) => {
+    setHomeRunEntries(prev => {
+      const kept = prev.filter(entry => names.includes(extractHomeRunPlayer(entry)));
+      const existingPlayers = kept.map(entry => extractHomeRunPlayer(entry));
+      const added = names.filter(name => !existingPlayers.includes(name));
+      return [...kept, ...added];
+    });
   };
 
   // イニングの追加／削除（9〜12回）
@@ -398,6 +358,9 @@ export const RecordFormModal: React.FC<RecordFormModalProps> = ({
     submitInProgress.current = true;
     setErrorMessage(null);
 
+    // 応援チームは対戦2チームの範囲に丸める（同一チーム時は選択肢が1件に正規化される）
+    const validCheerTeamId = matchupTeamIds.includes(cheerTeamId) ? cheerTeamId : homeTeamId;
+
     // Validation 1: Home != Away
     if (homeTeamId === awayTeamId) {
       setErrorMessage('ホームチームとビジターチームには異なる球団を選択してください。');
@@ -480,7 +443,7 @@ export const RecordFormModal: React.FC<RecordFormModalProps> = ({
       notes: notes || undefined,
 
       watchStatus,
-      cheerTeamId,
+      cheerTeamId: validCheerTeamId,
       categories,
       primaryCategory,
       seatInfo: {
@@ -967,61 +930,20 @@ export const RecordFormModal: React.FC<RecordFormModalProps> = ({
                 </div>
               </div>
 
-              {/* 同行者（複数人登録可：過去の入力から選択＋自由記述） */}
+              {/* 同行者（複数選択式の検索パネル。マスター=全記録から抽出） */}
               <div>
                 <label className="block font-bold text-slate-700 dark:text-slate-300 mb-1">
                   同行者（任意・複数人可）
                 </label>
-                {companionTags.length > 0 && (
-                  <div className="flex flex-wrap items-center gap-1.5 mb-2">
-                    {companionTags.map(tag => (
-                      <span key={tag} className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-blue-50 dark:bg-blue-950/40 border border-[#003882] dark:border-blue-500 text-slate-900 dark:text-slate-100 font-semibold">
-                        {tag}
-                        <button type="button" onClick={() => removeCompanion(tag)} aria-label={`${tag}を外す`} className="text-slate-400 hover:text-rose-500">
-                          <X className="w-3.5 h-3.5" />
-                        </button>
-                      </span>
-                    ))}
-                  </div>
-                )}
-                <div className="flex items-center gap-2">
-                  <input
-                    type="text"
-                    placeholder="名前を入力して追加（例: 家族、友人2名）"
-                    value={companionInput}
-                    onChange={(e) => setCompanionInput(e.target.value)}
-                    onKeyDown={(e) => {
-                      if (e.key === 'Enter') {
-                        e.preventDefault();
-                        addCompanion(companionInput);
-                        setCompanionInput('');
-                      }
-                    }}
-                    className="flex-1 px-3 py-2 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100"
-                  />
-                  <button
-                    type="button"
-                    onClick={() => { addCompanion(companionInput); setCompanionInput(''); }}
-                    className="px-3 py-2 text-sm font-bold text-white bg-[#003882] hover:bg-[#002868] rounded-xl shrink-0"
-                  >
-                    追加
-                  </button>
-                </div>
-                {pastCompanions.length > 0 && (
-                  <div className="flex flex-wrap items-center gap-1.5 mt-2">
-                    <span className="text-xs text-slate-400 shrink-0">過去の入力:</span>
-                    {pastCompanions.filter(n => !companionTags.includes(n)).map(name => (
-                      <button
-                        key={name}
-                        type="button"
-                        onClick={() => addCompanion(name)}
-                        className="px-2 py-1 text-xs rounded-full bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 transition-colors"
-                      >
-                        {name}
-                      </button>
-                    ))}
-                  </div>
-                )}
+                <NameMultiSearchField
+                  selected={companionTags}
+                  candidates={companionCandidates}
+                  addLabel="同行者を選択・追加"
+                  onChange={setCompanionTags}
+                />
+                <p className="mt-1.5 text-xs text-slate-400">
+                  過去の記録から集めた候補を検索して選べます。マスターに無い名前は検索欄から「新規登録」で追加でき、保存すると次回から候補に現れます。
+                </p>
               </div>
 
               {/* 観戦メモ */}
@@ -1325,118 +1247,103 @@ export const RecordFormModal: React.FC<RecordFormModalProps> = ({
                 </table>
               </div>
 
-              {/* 投手情報（過去の入力から選択＋自由入力） */}
+              {/* 投手情報（検索パネル式。候補は投手マスター=全記録から抽出・件数つき） */}
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
                   <label className="block font-bold text-slate-700 dark:text-slate-300 mb-1">
                     ホーム先発投手
                   </label>
-                  <input
-                    type="text"
-                    list="pitcher-datalist"
-                    placeholder="例: 髙橋宏斗"
+                  <NameSearchField
                     value={homeStarter}
-                    onChange={(e) => setHomeStarter(e.target.value)}
-                    className="w-full px-3 py-2 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800"
+                    candidates={pitcherCandidates}
+                    placeholder="先発投手を選択・入力"
+                    onChange={setHomeStarter}
                   />
                 </div>
                 <div>
                   <label className="block font-bold text-slate-700 dark:text-slate-300 mb-1">
                     ビジター先発投手
                   </label>
-                  <input
-                    type="text"
-                    list="pitcher-datalist"
-                    placeholder="例: 戸郷翔征"
+                  <NameSearchField
                     value={awayStarter}
-                    onChange={(e) => setAwayStarter(e.target.value)}
-                    className="w-full px-3 py-2 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800"
+                    candidates={pitcherCandidates}
+                    placeholder="先発投手を選択・入力"
+                    onChange={setAwayStarter}
                   />
                 </div>
               </div>
-              <datalist id="pitcher-datalist">
-                {pastPitchers.map(name => (
-                  <option key={name} value={name} />
-                ))}
-              </datalist>
 
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                 <div>
                   <label className="block font-bold text-slate-700 dark:text-slate-300 mb-1">
                     勝利投手
                   </label>
-                  <input
-                    list="pitcher-datalist"
-                    type="text"
-                    placeholder="例: 髙橋宏斗"
+                  <NameSearchField
                     value={winningPitcher}
-                    onChange={(e) => setWinningPitcher(e.target.value)}
-                    className="w-full px-3 py-2 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800"
+                    candidates={pitcherCandidates}
+                    placeholder="勝利投手を選択・入力"
+                    onChange={setWinningPitcher}
                   />
                 </div>
                 <div>
                   <label className="block font-bold text-slate-700 dark:text-slate-300 mb-1">
                     敗戦投手
                   </label>
-                  <input
-                    list="pitcher-datalist"
-                    type="text"
-                    placeholder="例: 戸郷翔征"
+                  <NameSearchField
                     value={losingPitcher}
-                    onChange={(e) => setLosingPitcher(e.target.value)}
-                    className="w-full px-3 py-2 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800"
+                    candidates={pitcherCandidates}
+                    placeholder="敗戦投手を選択・入力"
+                    onChange={setLosingPitcher}
                   />
                 </div>
                 <div>
                   <label className="block font-bold text-slate-700 dark:text-slate-300 mb-1">
                     セーブ
                   </label>
-                  <input
-                    list="pitcher-datalist"
-                    type="text"
-                    placeholder="例: マルティネス"
+                  <NameSearchField
                     value={savePitcher}
-                    onChange={(e) => setSavePitcher(e.target.value)}
-                    className="w-full px-3 py-2 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800"
+                    candidates={pitcherCandidates}
+                    placeholder="セーブ投手を選択・入力"
+                    onChange={setSavePitcher}
                   />
                 </div>
               </div>
 
-              {/* 本塁打（打った選手を複数登録可：過去の入力から選択＋自由入力） */}
+              {/* 本塁打（複数選択式の検索パネル。候補は本塁打選手マスター=全記録から抽出） */}
               <div>
                 <label className="block font-bold text-slate-700 dark:text-slate-300 mb-1">
                   本塁打（打った選手を記録）
                 </label>
-                {homeRunEntries.length === 0 && (
-                  <p className="text-slate-400 text-sm mb-2">本塁打があれば「本塁打を追加」から記録できます。</p>
+                <NameMultiSearchField
+                  selected={[...new Set(homeRunEntries.map(entry => extractHomeRunPlayer(entry)).filter(Boolean))]}
+                  candidates={homeRunCandidates}
+                  addLabel="本塁打選手を選択・追加"
+                  onChange={handleHomeRunPlayersChange}
+                />
+                {homeRunEntries.length > 0 && (
+                  <div className="space-y-2 mt-3">
+                    <p className="text-xs text-slate-400">各エントリに号数・種類などの詳細を追記できます（保存形式は従来どおりです）。</p>
+                    {homeRunEntries.map((entry, i) => (
+                      <div key={i} className="flex items-center gap-2">
+                        <input
+                          type="text"
+                          placeholder="例: 細川成也 21号2ラン(3回裏・戸郷)"
+                          value={entry}
+                          onChange={(e) => updateHomeRunEntry(i, e.target.value)}
+                          className="flex-1 px-3 py-2 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => removeHomeRunEntry(i)}
+                          aria-label="この本塁打を削除"
+                          className="p-2 text-rose-500 hover:text-rose-700 shrink-0"
+                        >
+                          <X className="w-4 h-4" />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
                 )}
-                <div className="space-y-2">
-                  {homeRunEntries.map((entry, i) => (
-                    <div key={i} className="flex items-center gap-2">
-                      <input
-                        type="text"
-                        list="homerun-player-datalist"
-                        placeholder="例: 細川成也 21号2ラン(3回裏・戸郷)"
-                        value={entry}
-                        onChange={(e) => updateHomeRunEntry(i, e.target.value)}
-                        className="flex-1 px-3 py-2 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100"
-                      />
-                      <button
-                        type="button"
-                        onClick={() => removeHomeRunEntry(i)}
-                        aria-label="この本塁打を削除"
-                        className="p-2 text-rose-500 hover:text-rose-700 shrink-0"
-                      >
-                        <X className="w-4 h-4" />
-                      </button>
-                    </div>
-                  ))}
-                </div>
-                <datalist id="homerun-player-datalist">
-                  {pastHomeRunPlayers.map(name => (
-                    <option key={name} value={name} />
-                  ))}
-                </datalist>
                 <button
                   type="button"
                   onClick={addHomeRunEntry}

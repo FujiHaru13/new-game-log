@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import { useBaseball } from '../../context/BaseballContext';
 import { TEAMS } from '../../data/teams';
 import { TeamLogo } from '../common/TeamLogo';
@@ -24,6 +24,7 @@ import {
 } from 'lucide-react';
 import { MatchRecord } from '../../types/baseball';
 import { exportRecordsToExcel, parseExcelFile } from '../../utils/excelUtils';
+import { extractMasterEntries, MASTER_KIND_LABELS, type MasterKind } from '../../utils/masterData';
 
 export const SettingsMaster: React.FC = () => {
   const {
@@ -35,9 +36,59 @@ export const SettingsMaster: React.FC = () => {
     supabaseConfig,
     updateSupabaseConfig,
     stadiums,
+    renameMasterEntries,
   } = useBaseball();
 
-  const [activeTab, setActiveTab] = useState<'backup' | 'master_teams' | 'master_stadiums' | 'supabase'>('backup');
+  const [activeTab, setActiveTab] = useState<'backup' | 'master_teams' | 'master_stadiums' | 'master_manage' | 'supabase'>('backup');
+
+  // マスター管理（名前の一括置換）
+  const [masterKind, setMasterKind] = useState<MasterKind>('pitchers');
+  const [selectedMasterName, setSelectedMasterName] = useState<string | null>(null);
+  const [newMasterName, setNewMasterName] = useState('');
+  const [masterConfirmStage, setMasterConfirmStage] = useState(false);
+  const [masterBusy, setMasterBusy] = useState(false);
+  const [masterMessage, setMasterMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+
+  const masterEntries = useMemo(() => extractMasterEntries(records, masterKind), [records, masterKind]);
+  const selectedMasterEntry = masterEntries.find(e => e.name === selectedMasterName) || null;
+  const trimmedNewMasterName = newMasterName.trim();
+  const isMasterMerge = Boolean(
+    selectedMasterName &&
+    trimmedNewMasterName &&
+    trimmedNewMasterName !== selectedMasterName &&
+    masterEntries.some(e => e.name === trimmedNewMasterName),
+  );
+
+  const handleMasterKindChange = (kind: MasterKind) => {
+    setMasterKind(kind);
+    setSelectedMasterName(null);
+    setNewMasterName('');
+    setMasterConfirmStage(false);
+    setMasterMessage(null);
+  };
+
+  const executeMasterRename = async () => {
+    if (!selectedMasterName || !trimmedNewMasterName || masterBusy) return;
+    setMasterBusy(true);
+    setMasterMessage(null);
+    try {
+      const changed = await renameMasterEntries(masterKind, selectedMasterName, trimmedNewMasterName);
+      setMasterMessage({
+        type: 'success',
+        text: `「${selectedMasterName}」→「${trimmedNewMasterName}」への変更が完了しました。変更した記録は ${changed} 件です。`,
+      });
+      setSelectedMasterName(null);
+      setNewMasterName('');
+      setMasterConfirmStage(false);
+    } catch (err: any) {
+      setMasterMessage({
+        type: 'error',
+        text: `一括置換に失敗しました: ${err?.message || '不明なエラー'}`,
+      });
+    } finally {
+      setMasterBusy(false);
+    }
+  };
   const [jsonInput, setJsonInput] = useState('');
   const [importMode, setImportMode] = useState<'merge' | 'replace'>('merge');
   const [importMessage, setImportMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
@@ -115,7 +166,7 @@ export const SettingsMaster: React.FC = () => {
   };
 
   return (
-    <div className="space-y-6 max-w-7xl mx-auto pb-16">
+    <div className="space-y-6 w-full pb-16">
       {/* Top Header */}
       <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-5 shadow-xs space-y-4">
         <div>
@@ -133,6 +184,7 @@ export const SettingsMaster: React.FC = () => {
             { id: 'backup', label: 'データ移行・バックアップ' },
             { id: 'master_teams', label: '球団マスター' },
             { id: 'master_stadiums', label: '球場・席種マスター' },
+            { id: 'master_manage', label: 'マスター管理' },
             { id: 'supabase', label: 'Supabase・本番連携準備' },
           ].map(tab => (
             <button
@@ -445,6 +497,146 @@ export const SettingsMaster: React.FC = () => {
                   </div>
                 </div>
               ))}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* TAB: MASTER MANAGEMENT （名前の一括置換） */}
+      {activeTab === 'master_manage' && (
+        <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-5 shadow-xs space-y-4">
+          <div>
+            <h3 className="text-sm font-bold text-slate-900 dark:text-slate-100">マスター管理（名前の一括置換）</h3>
+            <p className="text-[11px] text-slate-500 mt-1 leading-relaxed">
+              投手・本塁打選手・席種名・同行者は、全記録から自動で集めた名前一覧です。名前を選んで新しい名前に変更すると、
+              該当する全記録へ一括で置換され、保存経路を通して永続化されます。
+            </p>
+          </div>
+
+          {/* カテゴリ切替 */}
+          <div className="flex items-center gap-1 p-1 bg-slate-100 dark:bg-slate-800 rounded-xl overflow-x-auto text-xs self-start">
+            {(Object.keys(MASTER_KIND_LABELS) as MasterKind[]).map(kind => (
+              <button
+                key={kind}
+                onClick={() => handleMasterKindChange(kind)}
+                className={`px-3 py-1.5 font-bold rounded-lg transition-all whitespace-nowrap ${
+                  masterKind === kind
+                    ? 'bg-[#003882] text-white shadow-xs'
+                    : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-100'
+                }`}
+              >
+                {MASTER_KIND_LABELS[kind]}
+              </button>
+            ))}
+          </div>
+
+          {masterMessage && (
+            <div className={`p-3 rounded-xl text-xs flex items-center gap-2 ${
+              masterMessage.type === 'success'
+                ? 'bg-emerald-50 dark:bg-emerald-950/40 text-emerald-800 dark:text-emerald-300 border border-emerald-200'
+                : 'bg-rose-50 dark:bg-rose-950/40 text-rose-800 dark:text-rose-300 border border-rose-200'
+            }`}>
+              {masterMessage.type === 'success' ? <CheckCircle2 className="w-4 h-4 shrink-0" /> : <AlertTriangle className="w-4 h-4 shrink-0" />}
+              <span>{masterMessage.text}</span>
+            </div>
+          )}
+
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+            {/* 名前一覧（使用件数つき） */}
+            <div className="border border-slate-200 dark:border-slate-800 rounded-xl overflow-hidden">
+              <div className="px-3 py-2 bg-slate-50 dark:bg-slate-950/60 border-b border-slate-200 dark:border-slate-800 text-xs font-bold text-slate-700 dark:text-slate-300">
+                {MASTER_KIND_LABELS[masterKind]} 一覧（{masterEntries.length}件）
+              </div>
+              <div className="max-h-96 overflow-y-auto divide-y divide-slate-100 dark:divide-slate-800">
+                {masterEntries.length === 0 ? (
+                  <p className="px-3 py-6 text-xs text-slate-400 text-center">登録された名前がまだありません。</p>
+                ) : (
+                  masterEntries.map(entry => (
+                    <button
+                      key={entry.name}
+                      onClick={() => {
+                        setSelectedMasterName(entry.name);
+                        setNewMasterName('');
+                        setMasterConfirmStage(false);
+                      }}
+                      aria-pressed={selectedMasterName === entry.name}
+                      className={`w-full flex items-center justify-between px-3 py-2.5 text-left text-xs transition-colors ${
+                        selectedMasterName === entry.name
+                          ? 'bg-blue-50 dark:bg-blue-950/40 font-bold text-slate-900 dark:text-slate-100'
+                          : 'text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800/50'
+                      }`}
+                    >
+                      <span className="truncate">{entry.name}</span>
+                      <span className="text-[11px] text-slate-400 tabular-nums shrink-0 ml-2">{entry.count}件で使用</span>
+                    </button>
+                  ))
+                )}
+              </div>
+            </div>
+
+            {/* 変更フォーム */}
+            <div className="border border-slate-200 dark:border-slate-800 rounded-xl p-4 space-y-3 text-xs">
+              {selectedMasterEntry ? (
+                <>
+                  <div>
+                    <span className="text-slate-500 block mb-1">変更前の名前（{selectedMasterEntry.count}件の記録で使用中）</span>
+                    <span className="font-bold text-slate-900 dark:text-slate-100 text-sm">{selectedMasterEntry.name}</span>
+                  </div>
+                  <div>
+                    <label className="block font-bold text-slate-700 dark:text-slate-300 mb-1">変更後の名前</label>
+                    <input
+                      type="text"
+                      value={newMasterName}
+                      onChange={(e) => {
+                        setNewMasterName(e.target.value);
+                        setMasterConfirmStage(false);
+                      }}
+                      placeholder="新しい名前を入力（空欄には変更できません）"
+                      className="w-full px-3 py-2 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 text-sm"
+                    />
+                  </div>
+
+                  {!masterConfirmStage ? (
+                    <button
+                      onClick={() => setMasterConfirmStage(true)}
+                      disabled={!trimmedNewMasterName || trimmedNewMasterName === selectedMasterName}
+                      className="px-4 py-2 font-bold text-white bg-[#003882] hover:bg-[#002868] rounded-xl transition-all disabled:opacity-40"
+                    >
+                      名前を変更する
+                    </button>
+                  ) : (
+                    <div className="p-3 rounded-xl bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800 space-y-2">
+                      <p className="font-bold text-amber-900 dark:text-amber-200">最終確認（2段階確認）</p>
+                      <p className="text-amber-800 dark:text-amber-300 leading-relaxed">
+                        「{selectedMasterName}」を「{trimmedNewMasterName}」に変更し、{selectedMasterEntry.count}件の記録へ一括置換します。
+                      </p>
+                      {isMasterMerge && (
+                        <p className="font-bold text-rose-700 dark:text-rose-300 leading-relaxed">
+                          注意: 「{trimmedNewMasterName}」は既に存在する名前です。実行すると2つの名前が統合（マージ）され、元に戻すには再度の置換が必要です。
+                        </p>
+                      )}
+                      <div className="flex items-center gap-2 pt-1">
+                        <button
+                          onClick={executeMasterRename}
+                          disabled={masterBusy}
+                          className="px-4 py-2 font-bold text-white bg-rose-600 hover:bg-rose-700 rounded-xl transition-all disabled:opacity-40"
+                        >
+                          {masterBusy ? '置換中...' : isMasterMerge ? '統合を実行する' : '変更を実行する'}
+                        </button>
+                        <button
+                          onClick={() => setMasterConfirmStage(false)}
+                          disabled={masterBusy}
+                          className="px-4 py-2 font-bold text-slate-700 dark:text-slate-300 bg-slate-100 dark:bg-slate-800 rounded-xl disabled:opacity-40"
+                        >
+                          戻る
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                </>
+              ) : (
+                <p className="text-slate-400 py-8 text-center">左の一覧から変更したい名前を選んでください。</p>
+              )}
             </div>
           </div>
         </div>

@@ -38,11 +38,12 @@ import {
   Zap,
   Layers,
 } from 'lucide-react';
-import { MatchRecord } from '../../types/baseball';
+import { MatchRecord, CategoryId } from '../../types/baseball';
 
 type AnalysisTab =
   | 'overview'
   | 'yearly'
+  | 'year_month'
   | 'opponents'
   | 'stadiums'
   | 'pitchers'
@@ -52,25 +53,34 @@ type AnalysisTab =
   | 'expenses';
 
 export const StatsDashboard: React.FC = () => {
-  const { records, selectedYear, setSelectedYear, availableYears, selectedCategory, setSelectedCategory } = useBaseball();
+  const { records, availableYears } = useBaseball();
 
   // Active view tab
   const [activeTab, setActiveTab] = useState<AnalysisTab>('overview');
 
-  // Filtered records based on global filters
+  // 統計専用フィルタ: カテゴリ（中日1軍/中日2軍/侍ジャパン。その他 other は常時除外）と
+  // 年度（全期間＋各年度）。両フィルタは併用可能。初期カテゴリは中日1軍。
+  // 年度フィルタは年度別推移タブ（yearly）には適用しない。
+  const [statsCategory, setStatsCategory] = useState<CategoryId>('dragons_1st');
+  const [statsYear, setStatsYear] = useState<string>('all');
+  const effectiveYear = activeTab === 'yearly' ? 'all' : statsYear;
+
+  const matchesStatsCategory = (r: MatchRecord) =>
+    r.categories.includes(statsCategory) || r.primaryCategory === statsCategory;
+
+  // Filtered records based on stats filters
   const filteredRecords = useMemo(() => {
     return records.filter(r => {
-      if (selectedYear !== 'all' && (!r.date || !r.date.startsWith(selectedYear))) {
+      if (effectiveYear !== 'all' && (!r.date || !r.date.startsWith(effectiveYear))) {
         return false;
       }
-      if (selectedCategory !== 'all') {
-        if (!r.categories.includes(selectedCategory) && r.primaryCategory !== selectedCategory) {
-          return false;
-        }
+      if (!matchesStatsCategory(r)) {
+        return false;
       }
       return true;
     });
-  }, [records, selectedYear, selectedCategory]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [records, effectiveYear, statsCategory]);
 
   const stats = useMemo(() => aggregateRecords(filteredRecords), [filteredRecords]);
   const streaksAndRecords = useMemo(() => calculateStreaksAndRecords(filteredRecords), [filteredRecords]);
@@ -79,9 +89,9 @@ export const StatsDashboard: React.FC = () => {
 
   // 1. カテゴリ別成績（1軍と2軍の明確な比較！）
   const categoryStats = useMemo(() => {
-    return CATEGORIES.map(cat => {
+    return CATEGORIES.filter(cat => cat.id !== 'other').map(cat => {
       const catRecords = records.filter(r => {
-        if (selectedYear !== 'all' && (!r.date || !r.date.startsWith(selectedYear))) return false;
+        if (statsYear !== 'all' && (!r.date || !r.date.startsWith(statsYear))) return false;
         return r.categories.includes(cat.id) || r.primaryCategory === cat.id;
       });
       return {
@@ -89,12 +99,12 @@ export const StatsDashboard: React.FC = () => {
         ...aggregateRecords(catRecords),
       };
     });
-  }, [records, selectedYear]);
+  }, [records, statsYear]);
 
   // 2. 年度別集計（Excelの年度別シート完全準拠）
   const yearlyStats = useMemo(() => {
     const map = new Map<string, { matches: number; wins: number; losses: number; draws: number; runsFor: number; runsAgainst: number; cost: number; dragons1st: number; dragons2nd: number }>();
-    records.filter(r => r.matchStatus === 'finished').forEach(r => {
+    records.filter(r => r.matchStatus === 'finished' && matchesStatsCategory(r)).forEach(r => {
       const year = r.date ? r.date.slice(0, 4) : '日付未定';
       const curr = map.get(year) || { matches: 0, wins: 0, losses: 0, draws: 0, runsFor: 0, runsAgainst: 0, cost: 0, dragons1st: 0, dragons2nd: 0 };
       curr.matches++;
@@ -127,7 +137,32 @@ export const StatsDashboard: React.FC = () => {
         };
       })
       .sort((a, b) => b.year.localeCompare(a.year));
-  }, [records]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [records, statsCategory]);
+
+  // 2b. 年度×月マトリクス（対象は全レコード。カテゴリ・年度フィルタに連動しない）
+  const yearMonthMatrix = useMemo(() => {
+    const months = [2, 3, 4, 5, 6, 7, 8, 9, 10, 11];
+    const years = [...availableYears].sort((a, b) => b.localeCompare(a));
+    const counts = new Map<string, number[]>();
+    years.forEach(y => counts.set(y, months.map(() => 0)));
+    records.forEach(r => {
+      if (!r.date || r.isDateUnknown) return;
+      const parts = r.date.split('-');
+      if (parts.length < 2) return;
+      const row = counts.get(parts[0]);
+      if (!row) return;
+      const idx = months.indexOf(parseInt(parts[1], 10));
+      if (idx >= 0) row[idx]++;
+    });
+    return {
+      months,
+      rows: years.map(year => {
+        const rowCounts = counts.get(year) || months.map(() => 0);
+        return { year, counts: rowCounts, total: rowCounts.reduce((a, b) => a + b, 0) };
+      }),
+    };
+  }, [records, availableYears]);
 
   // 3. 対戦相手別成績
   const opponentStats = useMemo(() => {
@@ -401,13 +436,13 @@ export const StatsDashboard: React.FC = () => {
   }, [filteredRecords]);
 
   return (
-    <div className="space-y-6 max-w-7xl mx-auto pb-16">
+    <div className="space-y-6 w-full pb-16">
       {/* Top Banner & Quick Metrics */}
       <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-5 shadow-xs space-y-4">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
           <div>
             <div className="flex items-center gap-2 text-xs font-semibold text-blue-700 dark:text-blue-400">
-              <span>{selectedYear === 'all' ? '通算全期間' : `${selectedYear}年`}</span>
+              <span>{statsYear === 'all' ? '通算全期間' : `${statsYear}年`}</span>
               <span aria-hidden="true">·</span>
               <span>エクセル分析全シート対応</span>
             </div>
@@ -428,6 +463,7 @@ export const StatsDashboard: React.FC = () => {
               { id: 'seats_companions', label: '席種・同行者' },
               { id: 'game_flow', label: '試合展開・点差' },
               { id: 'expenses', label: '費用・購入先' },
+              { id: 'year_month', label: '年度×月' },
             ].map(tab => (
               <button
                 key={tab.id}
@@ -442,6 +478,43 @@ export const StatsDashboard: React.FC = () => {
               </button>
             ))}
           </div>
+        </div>
+
+        {/* 統計フィルタ: カテゴリ × 年度（併用可） */}
+        <div className="flex flex-wrap items-center gap-2 pt-1">
+          <div className="flex items-center gap-1 p-1 bg-slate-100 dark:bg-slate-800 rounded-xl text-xs" role="group" aria-label="カテゴリ切替">
+            {CATEGORIES.filter(cat => cat.id !== 'other').map(cat => (
+              <button
+                key={cat.id}
+                onClick={() => setStatsCategory(cat.id)}
+                aria-pressed={statsCategory === cat.id}
+                className={`px-3 py-1.5 font-bold rounded-lg transition-all whitespace-nowrap ${
+                  statsCategory === cat.id
+                    ? 'bg-[#003882] text-white shadow-xs'
+                    : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-100'
+                }`}
+              >
+                {cat.shortLabel}
+              </button>
+            ))}
+          </div>
+          <div className="flex items-center gap-1.5 bg-slate-100 dark:bg-slate-800 px-2.5 py-1.5 rounded-xl text-xs">
+            <Calendar className="w-3.5 h-3.5 text-slate-500 shrink-0" />
+            <select
+              value={statsYear}
+              onChange={(e) => setStatsYear(e.target.value)}
+              disabled={activeTab === 'yearly'}
+              className="bg-transparent font-bold text-slate-800 dark:text-slate-200 focus:outline-none cursor-pointer disabled:opacity-40"
+              aria-label="統計の対象年度"
+            >
+              <option value="all">全期間</option>
+              {availableYears.map(yr => (
+                <option key={yr} value={yr}>{yr}年</option>
+              ))}
+            </select>
+            {activeTab === 'yearly' && <span className="text-[10px] text-slate-400">年度別推移では全期間固定</span>}
+          </div>
+          <span className="text-[11px] text-slate-400">対象: {CATEGORIES.find(c => c.id === statsCategory)?.label}（その他は常に除外）</span>
         </div>
 
         {/* Core KPI cards */}
@@ -468,12 +541,12 @@ export const StatsDashboard: React.FC = () => {
             <span className="text-[11px] font-semibold text-slate-500">現在の連勝・連敗</span>
             <div className="flex items-center gap-1.5 mt-1">
               {streaksAndRecords.currentStreak.type === 'win' ? (
-                <span className="font-display font-bold text-xl text-blue-600 dark:text-blue-400 flex items-center gap-1">
-                  <Flame className="w-5 h-5 text-blue-500 fill-blue-500" />
+                <span className="font-display font-bold text-xl text-red-600 dark:text-red-400 flex items-center gap-1">
+                  <Flame className="w-5 h-5 text-red-500 fill-red-500" />
                   {streaksAndRecords.currentStreak.count}連勝中
                 </span>
               ) : streaksAndRecords.currentStreak.type === 'loss' ? (
-                <span className="font-display font-bold text-xl text-rose-600 dark:text-rose-400">
+                <span className="font-display font-bold text-xl text-blue-600 dark:text-blue-400">
                   {streaksAndRecords.currentStreak.count}連敗中
                 </span>
               ) : (
@@ -528,11 +601,11 @@ export const StatsDashboard: React.FC = () => {
                         {catItem.finishedMatches}
                       </td>
                       <td className="py-3 text-center font-display tabular-nums">
-                        <span className="text-blue-600 dark:text-blue-400">{catItem.wins}</span>
+                        <span className="text-red-600 dark:text-red-400">{catItem.wins}</span>
                         <span className="text-slate-400"> - </span>
-                        <span className="text-rose-600 dark:text-rose-400">{catItem.losses}</span>
+                        <span className="text-blue-600 dark:text-blue-400">{catItem.losses}</span>
                         <span className="text-slate-400"> - </span>
-                        <span className="text-amber-600 dark:text-amber-400">{catItem.draws}</span>
+                        <span className="text-slate-500 dark:text-slate-400">{catItem.draws}</span>
                       </td>
                       <td className="py-3 text-right font-display font-bold text-base text-[#003882] dark:text-blue-400 tabular-nums">
                         {formatWinRate(catItem.winRate)}
@@ -560,7 +633,7 @@ export const StatsDashboard: React.FC = () => {
                 <Flame className="w-4 h-4 text-amber-500" />
                 通算最長連勝
               </span>
-              <div className="text-2xl font-display font-bold text-blue-600 mt-2">
+              <div className="text-2xl font-display font-bold text-red-600 mt-2">
                 {streaksAndRecords.maxWinStreak} <span className="text-xs font-normal text-slate-500">連勝</span>
               </div>
             </div>
@@ -601,9 +674,9 @@ export const StatsDashboard: React.FC = () => {
                 完封勝利・完封負け
               </span>
               <div className="text-2xl font-display font-bold text-slate-800 dark:text-slate-200 mt-2">
-                <span className="text-blue-600">{gameFlow.shutoutWins}</span>
+                <span className="text-red-600">{gameFlow.shutoutWins}</span>
                 <span className="text-slate-400 text-sm">勝 / </span>
-                <span className="text-rose-600">{gameFlow.shutoutLosses}</span>
+                <span className="text-blue-600">{gameFlow.shutoutLosses}</span>
                 <span className="text-slate-400 text-sm">敗</span>
               </div>
             </div>
@@ -651,11 +724,11 @@ export const StatsDashboard: React.FC = () => {
                       <span className="text-emerald-600 font-bold">{y.dragons2nd}</span>
                     </td>
                     <td className="py-3 text-center font-display tabular-nums">
-                      <span className="text-blue-600 dark:text-blue-400">{y.wins}</span>
+                      <span className="text-red-600 dark:text-red-400">{y.wins}</span>
                       <span className="text-slate-400"> - </span>
-                      <span className="text-rose-600 dark:text-rose-400">{y.losses}</span>
+                      <span className="text-blue-600 dark:text-blue-400">{y.losses}</span>
                       <span className="text-slate-400"> - </span>
-                      <span className="text-amber-600 dark:text-amber-400">{y.draws}</span>
+                      <span className="text-slate-500 dark:text-slate-400">{y.draws}</span>
                     </td>
                     <td className="py-3 text-right font-display font-bold text-base text-[#003882] dark:text-blue-400 tabular-nums">
                       {formatWinRate(y.winRate)}
@@ -712,11 +785,11 @@ export const StatsDashboard: React.FC = () => {
                       {opp.matches}
                     </td>
                     <td className="py-3 text-center font-display tabular-nums">
-                      <span className="text-blue-600 dark:text-blue-400">{opp.wins}</span>
+                      <span className="text-red-600 dark:text-red-400">{opp.wins}</span>
                       <span className="text-slate-400"> - </span>
-                      <span className="text-rose-600 dark:text-rose-400">{opp.losses}</span>
+                      <span className="text-blue-600 dark:text-blue-400">{opp.losses}</span>
                       <span className="text-slate-400"> - </span>
-                      <span className="text-amber-600 dark:text-amber-400">{opp.draws}</span>
+                      <span className="text-slate-500 dark:text-slate-400">{opp.draws}</span>
                     </td>
                     <td className="py-3 text-right font-display font-bold text-[#003882] dark:text-blue-400 tabular-nums">
                       {formatWinRate(opp.winRate)}
@@ -767,11 +840,11 @@ export const StatsDashboard: React.FC = () => {
                       {std.matches}
                     </td>
                     <td className="py-3 text-center font-display tabular-nums">
-                      <span className="text-blue-600 dark:text-blue-400">{std.wins}</span>
+                      <span className="text-red-600 dark:text-red-400">{std.wins}</span>
                       <span className="text-slate-400"> - </span>
-                      <span className="text-rose-600 dark:text-rose-400">{std.losses}</span>
+                      <span className="text-blue-600 dark:text-blue-400">{std.losses}</span>
                       <span className="text-slate-400"> - </span>
-                      <span className="text-amber-600 dark:text-amber-400">{std.draws}</span>
+                      <span className="text-slate-500 dark:text-slate-400">{std.draws}</span>
                     </td>
                     <td className="py-3 text-right font-display font-bold text-[#003882] dark:text-blue-400 tabular-nums">
                       {formatWinRate(std.winRate)}
@@ -818,10 +891,10 @@ export const StatsDashboard: React.FC = () => {
                         {st.matches}
                       </td>
                       <td className="py-3 text-center font-display tabular-nums">
-                        <span className="text-blue-600 dark:text-blue-400 font-bold">{st.wins}勝</span>
+                        <span className="text-red-600 dark:text-red-400 font-bold">{st.wins}勝</span>
                         <span className="text-slate-400"> - </span>
-                        <span className="text-rose-600 dark:text-rose-400 font-bold">{st.losses}敗</span>
-                        {st.draws > 0 && <span className="text-amber-500"> - {st.draws}分</span>}
+                        <span className="text-blue-600 dark:text-blue-400 font-bold">{st.losses}敗</span>
+                        {st.draws > 0 && <span className="text-slate-500"> - {st.draws}分</span>}
                       </td>
                       <td className="py-3 text-right font-display font-bold text-base text-[#003882] dark:text-blue-400 tabular-nums">
                         {formatWinRate(st.winRate)}
@@ -1101,6 +1174,48 @@ export const StatsDashboard: React.FC = () => {
                 </tbody>
               </table>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* 10. VIEW: YEAR x MONTH MATRIX */}
+      {activeTab === 'year_month' && (
+        <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-5 shadow-xs space-y-4">
+          <div className="flex items-center justify-between">
+            <h3 className="text-base font-bold text-slate-900 dark:text-slate-100 flex items-center gap-2">
+              <Calendar className="w-4 h-4 text-blue-600" />
+              <span>年度 × 月別 観戦試合数</span>
+            </h3>
+            <span className="text-xs text-slate-400 font-semibold">全{records.length}試合（全カテゴリ・予定含む）</span>
+          </div>
+          <p className="text-[11px] text-slate-500">
+            対象は全レコードです。カテゴリ・年度フィルタには連動しません（その他カテゴリ含む、終了・予定を問いません）。
+          </p>
+          <div className="overflow-x-auto">
+            <table className="w-full text-xs text-center">
+              <thead>
+                <tr className="border-b border-slate-100 dark:border-slate-800 text-slate-400 font-semibold">
+                  <th className="py-2.5 text-left">年度</th>
+                  {yearMonthMatrix.months.map(m => (
+                    <th key={m} className="py-2.5">{m}月</th>
+                  ))}
+                  <th className="py-2.5 text-right">合計</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100 dark:divide-slate-800 font-medium">
+                {yearMonthMatrix.rows.map(row => (
+                  <tr key={row.year} className="hover:bg-slate-50 dark:hover:bg-slate-800/40">
+                    <td className="py-2.5 text-left font-bold text-slate-900 dark:text-slate-100">{row.year}年</td>
+                    {row.counts.map((count, i) => (
+                      <td key={i} className={`py-2.5 font-display tabular-nums ${count > 0 ? 'font-bold text-slate-900 dark:text-slate-100' : 'text-slate-300 dark:text-slate-600'}`}>
+                        {count > 0 ? count : '-'}
+                      </td>
+                    ))}
+                    <td className="py-2.5 text-right font-display font-bold tabular-nums text-[#003882] dark:text-blue-400">{row.total}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
           </div>
         </div>
       )}
