@@ -135,8 +135,8 @@ insert into public.teams (id, name, short_name, code, color, text_color, league,
  ('team_usa'::text, 'アメリカ代表'::text, 'アメリカ'::text, 'USA'::text, '#002868'::text, '#ffffff'::text, 'japan'::text, '国際代表'::text, 22),
  ('team_australia'::text, 'オーストラリア代表'::text, '豪州'::text, 'AUS'::text, '#00843D'::text, '#FFCD00'::text, 'japan'::text, '国際代表'::text, 23),
  ('other_team'::text, 'その他の球団・クラブ'::text, 'その他'::text, 'OTH'::text, '#64748b'::text, '#ffffff'::text, 'other'::text, 'その他'::text, 99),
- ('japan_national'::text, '日本'::text, '日本'::text, 'JPN2'::text, null::text, null::text, 'japan'::text, '日本代表'::text, 100) -- 追加マスタ (シード側ID),
- ('australia'::text, 'オーストラリア'::text, 'オーストラリア'::text, 'AUS2'::text, null::text, null::text, 'japan'::text, '国際代表'::text, 101) -- 追加マスタ (シード側ID),
+ ('japan_national'::text, '日本'::text, '日本'::text, 'JPN2'::text, null::text, null::text, 'japan'::text, '日本代表'::text, 100), -- 追加マスタ (シード側ID)
+ ('australia'::text, 'オーストラリア'::text, 'オーストラリア'::text, 'AUS2'::text, null::text, null::text, 'japan'::text, '国際代表'::text, 101), -- 追加マスタ (シード側ID)
  ('czech'::text, 'チェコ'::text, 'チェコ'::text, 'CZE'::text, null::text, null::text, 'japan'::text, '国際代表'::text, 102) -- 追加マスタ (シード側ID)
 on conflict (id) do nothing;
 
@@ -152,9 +152,9 @@ insert into public.stadiums (id, name, short_name, location, home_team_id, is_do
  ('kyocera_dome'::text, '京セラドーム大阪'::text, '京セラドーム'::text, '大阪府大阪市西区千代崎3-中2-1'::text, 'buffaloes'::text, true, 9),
  ('paypay_dome'::text, 'みずほPayPayドーム福岡'::text, 'PayPayドーム'::text, '福岡県福岡市中央区地行浜2-2-2'::text, 'hawks'::text, true, 10),
  ('other_stadium'::text, 'その他球場・地方球場'::text, '地方・その他'::text, '全国各地'::text, null::text, false, 99),
- ('yokohama'::text, '横浜スタジアム'::text, 'ハマスタ'::text, '神奈川県横浜市中区横浜公園'::text, 'baystars'::text, false, 100) -- 追加マスタ (シード側ID),
- ('jingu'::text, '明治神宮野球場'::text, '神宮球場'::text, '東京都新宿区霞ヶ丘町3-1'::text, 'swallows'::text, false, 101) -- 追加マスタ (シード側ID),
- ('mazda'::text, 'MAZDA Zoom-Zoom スタジアム広島'::text, 'マツダスタジアム'::text, '広島県広島市南区南蟹屋2-3-1'::text, 'carp'::text, false, 102) -- 追加マスタ (シード側ID),
+ ('yokohama'::text, '横浜スタジアム'::text, 'ハマスタ'::text, '神奈川県横浜市中区横浜公園'::text, 'baystars'::text, false, 100), -- 追加マスタ (シード側ID)
+ ('jingu'::text, '明治神宮野球場'::text, '神宮球場'::text, '東京都新宿区霞ヶ丘町3-1'::text, 'swallows'::text, false, 101), -- 追加マスタ (シード側ID)
+ ('mazda'::text, 'MAZDA Zoom-Zoom スタジアム広島'::text, 'マツダスタジアム'::text, '広島県広島市南区南蟹屋2-3-1'::text, 'carp'::text, false, 102), -- 追加マスタ (シード側ID)
  ('chatan'::text, '北谷公園野球場'::text, '北谷公園野球場'::text, null::text, null::text, false, 103) -- 追加マスタ (シード側ID)
 on conflict (id) do nothing;
 
